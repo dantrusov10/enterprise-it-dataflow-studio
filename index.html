@@ -23,7 +23,8 @@
     .btn:hover { background: #f8fafc; }
     .btn.active { background: #0f172a; color: #fff; border-color: #0f172a; }
     .badge { font-size: 12px; color: #334155; background: #dbeafe; border: 1px solid #93c5fd; padding: 3px 8px; border-radius: 999px; }
-    .workspace-wrap { position: relative; overflow: hidden; }
+    /* Полная высота: иначе при absolute-вьюпорте родитель схлопывается в 0 и паутина не видна */
+    .workspace-wrap { position: absolute; inset: 0; overflow: hidden; }
     #workspace {
       position: relative; width: 2600px; height: 1600px; margin: 0; background: #f8fafc;
       background-image:
