@@ -39,14 +39,14 @@ function parseCSVLine(line) {
   return out;
 }
 
-function readCSV(filePath) {
+function readCSV(filePath, minCols = 1) {
   const raw = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
   const lines = raw.split(/\r?\n/).filter((l) => l.length > 0);
   if (!lines.length) return [];
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
     const parts = parseCSVLine(lines[i]);
-    if (parts.length < 6) continue;
+    if (parts.length < minCols) continue;
     rows.push(parts);
   }
   return rows;
@@ -56,7 +56,7 @@ const refPath = path.join(
   repoRoot,
   "IT_Architecture_Zones_Classes_Reference__1_Справочник.csv"
 );
-const refLines = readCSV(refPath);
+const refLines = readCSV(refPath, 5);
 const zones = {};
 const classReference = {};
 for (const p of refLines) {
@@ -89,7 +89,7 @@ const funcFiles = fs
 
 for (const fname of funcFiles) {
   const sheet = fname.replace(/^Enterprise_IT_Landscape_47_классов__\d+_/, "").replace(/\.csv$/i, "");
-  const rows = readCSV(path.join(repoRoot, fname));
+  const rows = readCSV(path.join(repoRoot, fname), 6);
   const funcs = [];
   for (const p of rows) {
     const typ = (p[0] || "").trim();
@@ -116,11 +116,19 @@ for (const fname of funcFiles) {
   };
 }
 
+const corpusPath = path.join(repoRoot, "enterprise-it-research-corpus.txt");
+let researchCorpus = "";
+if (fs.existsSync(corpusPath)) {
+  researchCorpus = fs.readFileSync(corpusPath, "utf8").replace(/^\uFEFF/, "").trim();
+  console.log("researchCorpus:", researchCorpus.length, "chars");
+}
+
 const payload = {
   generatedAt: new Date().toISOString().slice(0, 19),
   zones,
   classReference,
   classSheets,
+  researchCorpus,
 };
 
 const outPath = path.join(repoRoot, "enterprise-it-dataflow-knowledge.js");

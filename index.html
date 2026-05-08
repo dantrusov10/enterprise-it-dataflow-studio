@@ -131,7 +131,7 @@
         <div class="sidebar-search-section">
           <h3>Поиск по базе</h3>
           <input id="sidebarSearchInput" class="search-input" type="search" placeholder="Задача, функция, синоним…" autocomplete="off" />
-          <div class="hint" style="font-size:11px;margin-top:4px;">Семантика v2: нормализация + тезаурус.</div>
+          <div class="hint" style="font-size:11px;margin-top:4px;">Семантика v2. В карточке класса раскрывайте функцию — полный текст и заготовка под вендоров. Связи: текст из справочника и листов + опционально corpus.</div>
           <div id="sidebarSearchResults" class="sidebar-search-results"></div>
         </div>
         <button class="btn" id="editToggle">Редактировать: выкл</button>
@@ -145,7 +145,7 @@
         <button class="btn" id="minCrossBtn">Минимум пересечений</button>
         <button class="btn" id="exportBtn">Экспорт JSON</button>
         <button class="btn" id="openKnowledgeBtn">База знаний</button>
-        <span class="badge">v5.1.1 sidebar search + full functions</span>
+        <span class="badge">v5.2 rich edges + function cascade</span>
       </div>
     </aside>
     <div class="workspace-wrap">
@@ -253,6 +253,66 @@
       return nodeById(id)?.label?.replace(/\n/g, " ") || id;
     }
 
+    function truncateText(s, max) {
+      const t = String(s ?? "").replace(/\s+/g, " ").trim();
+      if (!t) return "";
+      if (t.length <= max) return t;
+      return t.slice(0, max).trim() + "…";
+    }
+
+    function pickRelevantFunctions(sheetData, hintText, limit) {
+      const funcs = listFromValue(sheetData?.allFunctions?.length ? sheetData.allFunctions : sheetData?.topFunctions);
+      const hints = tokenizeQuery(hintText);
+      const expanded = expandQueryTokens(hints);
+      const scored = [];
+      for (const f of funcs) {
+        if (String(f.type || "").toLowerCase().includes("категор")) continue;
+        const blob = normalizeForMatch(`${f.title || ""} ${f.general || ""} ${f.technical || ""} ${f.business || ""}`);
+        let score = 0;
+        for (const t of expanded) {
+          if (t.length < 3) continue;
+          if (blob.includes(t)) score += 2;
+        }
+        for (const t of hints) {
+          if (t.length >= 4 && blob.includes(t)) score += 4;
+        }
+        if (score > 0) scored.push({ f, score });
+      }
+      scored.sort((a, b) => b.score - a.score);
+      if (scored.length) return scored.slice(0, limit).map((x) => x.f);
+      const funcs = listFromValue(sheetData?.allFunctions?.length ? sheetData.allFunctions : sheetData?.topFunctions)
+        .filter((f) => !String(f.type || "").toLowerCase().includes("категор"));
+      return [...funcs].sort((a, b) => (b.priority || 0) - (a.priority || 0)).slice(0, limit);
+    }
+
+    function endpointKbBundle(endpointId) {
+      if (endpointId.startsWith("z-")) {
+        const z = zoneById(endpointId);
+        const kb = zoneKbById(endpointId);
+        const title = z?.title || endpointId;
+        const ref = kb
+          ? { what: kb.what, techGoal: kb.techGoal, businessGoal: kb.businessGoal, howWorks: kb.howWorks }
+          : null;
+        return { title, ref, sheet: null };
+      }
+      const node = nodeById(endpointId);
+      const title = node?.label?.replace(/\n/g, " ") || endpointId;
+      const cref = classRefByNode(node);
+      const sh = classSheetByNode(node);
+      return { title, ref: cref?.data || null, sheet: sh?.data || null };
+    }
+
+    function formatFunctionBullets(funcs, maxLen) {
+      return funcs
+        .map((f) => {
+          const title = (f.title || "").trim();
+          const body = truncateText(f.general || f.technical || f.business || "", maxLen);
+          if (!title && !body) return "";
+          return body ? `«${title}» — ${body}` : `«${title}»`;
+        })
+        .filter(Boolean);
+    }
+
     function buildEdgeKnowledgeSections(e) {
       if (e.kb && typeof e.kb === "object") {
         const k = e.kb;
@@ -260,25 +320,94 @@
           what: k.what || "",
           why: k.why || "",
           atSource: k.atSource || "",
-          atDest: k.atDest || ""
+          atDest: k.atDest || "",
+          research: k.research || ""
         };
       }
-      const fromT = endpointTitlePlain(e.from);
-      const toT = endpointTitlePlain(e.to);
+      const fromB = endpointKbBundle(e.from);
+      const toB = endpointKbBundle(e.to);
+      const fromT = fromB.title;
+      const toT = toB.title;
       const label = (e.label || "").trim();
+      const hint = [label, fromT, toT].filter(Boolean).join(" ");
+
       const typeRu =
-        e.type === "zone" ? "логическая связь уровня зон (агрегированный поток между крупными блоками архитектуры)." :
-        e.type === "alt" ? "связь типа «альтернатива / оговорка»: подчёркивает отличие ролей или риск путаницы, а не обязательный ежедневный обмен данными." :
-        "операционная интеграция: регулярный или событийный обмен данными между классами решений.";
-      const what = label
-        ? `На схеме поток помечен как «${label}». Это основной смысл передаваемых сведений или контекста между «${fromT}» и «${toT}».`
-        : `На связи нет отдельной подписи — это канал между «${fromT}» и «${toT}». Содержимое определяется типовыми объектами учёта и событиями в этих классах (CI, активы, тикеты, события и т.д.).`;
-      const why = `Связь нужна, чтобы «${toT}» мог опираться на данные и контекст из «${fromT}» без ручного дублирования: единая картина для процессов, отчётности и управления рисками. Тип связи: ${typeRu}`;
-      const atSource = `В источнике «${fromT}» данные обычно появляются в результате штатной работы системы: сбор с агентов/сканеров, API облака или on-prem, журналы, конфигурации, справочники, действия пользователей или синхронизация с соседними реестрами — в зависимости от класса решения.`;
-      const atDest = `В приёмнике «${toT}» поток используется по назначению этого класса: отображение в интерфейсах, запуск процессов (workflow), обогащение записей, расчёт метрик, корреляция событий, запись в реестр (например CMDB), поддержка SLA или compliance — без «переизобретения» учёта на стороне приёмника.`;
-      return { what, why, atSource, atDest };
+        e.type === "zone"
+          ? "логическая связь уровня зон: агрегированный поток между крупными блоками архитектуры."
+          : e.type === "alt"
+            ? "связь-оговорка: акцент на отличии ролей или риске путаницы, не обязательно ежедневный обмен."
+            : "операционная интеграция: регулярный или событийный обмен между классами.";
+
+      const fromWhat = truncateText(fromB.ref?.what || "", 360);
+      const toWhat = truncateText(toB.ref?.what || "", 360);
+      const fromHow = truncateText(fromB.ref?.howWorks || "", 420);
+      const toHow = truncateText(toB.ref?.howWorks || "", 420);
+      const fromBiz = truncateText(fromB.ref?.businessGoal || "", 280);
+      const toBiz = truncateText(toB.ref?.businessGoal || "", 280);
+      const fromTech = truncateText(fromB.ref?.techGoal || "", 220);
+      const toTech = truncateText(toB.ref?.techGoal || "", 220);
+
+      let what = "";
+      if (label) {
+        what = `Подпись на схеме — «${label}»: так зафиксирован смысл передаваемых артефактов или событий из «${fromT}» в «${toT}». `;
+      } else {
+        what = `Связь соединяет «${fromT}» и «${toT}». Состав обмена следует из объектов учёта, API и процессов этих классов (ниже — выдержки из материалов базы). `;
+      }
+      if (fromWhat) what += `Источник («${fromT}»): ${fromWhat} `;
+      if (toWhat) what += `Приёмник («${toT}»): ${toWhat}`;
+
+      let why = "";
+      if (fromBiz || toBiz || fromTech || toTech) {
+        why = `Смысл связи в архитектуре: `;
+        if (fromBiz) why += `со стороны «${fromT}» — ${fromBiz} `;
+        if (toBiz) why += `со стороны «${toT}» — ${toBiz} `;
+        if (fromTech || toTech) {
+          why += `Технические акценты: `;
+          if (fromTech) why += `(${fromT}) ${fromTech} `;
+          if (toTech) why += `(${toT}) ${toTech} `;
+        }
+        why += `Тип на схеме: ${typeRu}`;
+      } else {
+        why = `Связь позволяет «${toT}» опираться на факты и контекст из «${fromT}» без дублирования учёта и расхождений. ${typeRu}`;
+      }
+
+      const relFrom = pickRelevantFunctions(fromB.sheet, hint, 4);
+      const relTo = pickRelevantFunctions(toB.sheet, hint, 4);
+      const bulletsFrom = formatFunctionBullets(relFrom, 220);
+      const bulletsTo = formatFunctionBullets(relTo, 220);
+
+      let atSource = "";
+      if (fromHow) atSource = `${fromHow} `;
+      if (bulletsFrom.length) {
+        atSource += `Фрагменты из листа функций «${fromT}», близкие к подписи связи: ${bulletsFrom.map((b) => b).join(" · ")}`;
+      } else if (!fromHow) {
+        atSource = `В «${fromT}» данные формируются штатной работой класса (сбор, API, журналы, справочники) — в материалах нет отдельного листа или совпадений по ключевым словам подписи.`;
+      }
+
+      let atDest = "";
+      if (toHow) atDest = `${toHow} `;
+      if (bulletsTo.length) {
+        atDest += `Фрагменты из листа «${toT}», релевантные потоку: ${bulletsTo.map((b) => b).join(" · ")}`;
+      } else if (!toHow) {
+        atDest = `«${toT}» потребляет поток в рамках своих процессов (workflow, реестры, отчётность, события) — уточните подпись на стрелке или расширьте материалы класса.`;
+      }
+
+      const researchParts = [];
+      for (const f of relFrom.slice(0, 2)) {
+        const g = truncateText(f.general || f.technical || "", 300);
+        if (g) researchParts.push(`[${fromT}] ${f.title}: ${g}`);
+      }
+      for (const f of relTo.slice(0, 2)) {
+        const g = truncateText(f.general || f.technical || "", 300);
+        if (g) researchParts.push(`[${toT}] ${f.title}: ${g}`);
+      }
+      let research = researchParts.length
+        ? researchParts.join("\n\n")
+        : `Расширенные выдержки из CSV-исследования по этой паре собираются автоматически из листов классов (поля general/technical) по подписи «${label || "—"}» и названиям концов. При необходимости добавьте в корень репозитория файл enterprise-it-research-corpus.txt и пересоберите базу — в карточку связи подтянутся релевантные абзацы полного исследования.`;
+
+      return { what: what.trim(), why: why.trim(), atSource: atSource.trim(), atDest: atDest.trim(), research: research.trim() };
     }
-    const KB = window.ENTERPRISE_KB || { zones: {}, classReference: {}, classSheets: {} };
+    const KB = window.ENTERPRISE_KB || { zones: {}, classReference: {}, classSheets: {}, researchCorpus: "" };
 
     const RU_STEM_SUFFIXES = [
       "иями","ями","остями","ях","ах","ами","ого","ему","ому","ыми","ех","ох","им","ым","ую","юю","ых","их","ая","ое","ые","ий","ой","ей","ем","ам","ям","ию","ия","ие","ов","ев","ть","ся","сь","ла","ли","ло","на","но","ны","ет","ют","ат","ят","ить","ать","ение","ения","ости","ания","ован","ирован","ельн","ество","нн","лись"
@@ -355,6 +484,25 @@
       if (!v) return [];
       if (Array.isArray(v)) return v;
       return [v];
+    }
+
+    function enrichEdgeResearch(baseResearch, hint) {
+      const corpus = KB.researchCorpus;
+      if (!corpus || typeof corpus !== "string" || corpus.length < 200) return baseResearch;
+      const paras = corpus.split(/\n\s*\n/).map((p) => p.trim()).filter((p) => p.length > 100);
+      const toks = expandQueryTokens(tokenizeQuery(hint)).filter((t) => t.length > 3);
+      if (!toks.length) return baseResearch;
+      const scored = [];
+      for (const p of paras) {
+        const np = normalizeForMatch(p);
+        let hits = 0;
+        for (const t of toks) if (np.includes(t)) hits++;
+        if (hits) scored.push({ p, hits });
+      }
+      scored.sort((a, b) => b.hits - a.hits);
+      const top = scored.slice(0, 2).map((x) => truncateText(x.p, 520));
+      if (!top.length) return baseResearch;
+      return `${baseResearch}\n\n— Полное исследование (релевантные абзацы):\n\n${top.join("\n\n")}`;
     }
 
     function zoneKbById(zoneId) {
@@ -452,6 +600,23 @@
       updateDetailPrompt();
     }
 
+    function renderFunctionCascadeBody(f) {
+      const vendorStub = `
+        <div style="margin-top:12px;padding-top:10px;border-top:1px dashed #cbd5e1;">
+          <b>У конкурентов и вендоров</b>
+          <div class="muted-text" style="margin-top:4px;line-height:1.45;font-size:12px;">
+            После подключения БД: для этой функции появятся отметки «есть/нет/частично», ссылки на первоисточники (документация вендора, отчёты аналитиков) и сопоставление с вашей матрицей.
+          </div>
+        </div>`;
+      return `
+        <div style="margin-top:8px;line-height:1.45;font-size:12px;">
+          <div><b>Общее:</b> ${esc(f.general)}</div>
+          <div style="margin-top:6px;"><b>Техника:</b> ${esc(f.technical)}</div>
+          <div style="margin-top:6px;"><b>Бизнес:</b> ${esc(f.business)}</div>
+          ${vendorStub}
+        </div>`;
+    }
+
     function renderClassFunctionsHtml(sheetData) {
       const all = listFromValue(sheetData?.allFunctions);
       const top = listFromValue(sheetData?.topFunctions);
@@ -464,19 +629,19 @@
         const pr = f.priority ?? "?";
         const title = esc(f.title || "без названия");
         if (typ.includes("категор")) {
-          parts.push(`<div style="margin-top:10px;font-weight:700;color:#0f172a;">${title} <span class="pill">P${pr}</span></div>`);
-          if (useFull && (f.general || f.technical || f.business)) {
-            parts.push(`<div class="muted-text" style="margin:4px 0 8px 10px;line-height:1.4;">${esc([f.general, f.technical, f.business].filter(Boolean).join(" "))}</div>`);
+          const blob = [f.general, f.technical, f.business].filter(Boolean).join(" ");
+          if (blob) {
+            parts.push(
+              `<details class="fn-cascade" style="margin-top:10px;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;background:#f8fafc;"><summary style="cursor:pointer;font-weight:700;color:#0f172a;">${title} <span class="pill">категория · P${pr}</span></summary><div class="muted-text" style="margin-top:8px;line-height:1.45;">${esc(blob)}</div></details>`
+            );
+          } else {
+            parts.push(`<div style="margin-top:10px;font-weight:700;color:#0f172a;">${title} <span class="pill">P${pr}</span></div>`);
           }
           continue;
         }
-        if (useFull) {
-          parts.push(`<details style="margin:6px 0 6px 6px;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;background:#fafafa;"><summary style="cursor:pointer;font-weight:600;">${title} <span class="pill">P${pr}</span></summary><div style="margin-top:8px;line-height:1.45;font-size:11px;"><b>Общее:</b> ${esc(f.general)}</div><div style="margin-top:4px;"><b>Техника:</b> ${esc(f.technical)}</div><div style="margin-top:4px;"><b>Бизнес:</b> ${esc(f.business)}</div></details>`);
-        } else {
-          const snippet = esc((f.business || f.general || "").slice(0, 240));
-          const more = ((f.business || f.general || "").length > 240) ? "…" : "";
-          parts.push(`<div class="result-item" style="margin:6px 0;"><div><b>${title}</b> <span class="pill">P${pr}</span></div><div class="muted-text">${snippet}${more}</div></div>`);
-        }
+        parts.push(
+          `<details class="fn-cascade" style="margin:6px 0 6px 4px;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;background:#fafafa;"><summary style="cursor:pointer;font-weight:600;list-style-position:outside;">${title} <span class="pill">P${pr}</span>${useFull ? "" : " · нажмите для полного текста"}</summary>${renderFunctionCascadeBody(f)}</details>`
+        );
       }
       return parts.join("");
     }
@@ -531,13 +696,21 @@
         const from = esc(endpointTitlePlain(e.from));
         const to = esc(endpointTitlePlain(e.to));
         const sec = buildEdgeKnowledgeSections(e);
+        const hintEdge = [e.label, endpointTitlePlain(e.from), endpointTitlePlain(e.to)].filter(Boolean).join(" ");
+        sec.research = enrichEdgeResearch(sec.research, hintEdge);
+        const researchBlocks = esc(sec.research || "")
+          .split(/\n\n/)
+          .filter(Boolean)
+          .map((p) => `<p style="margin:8px 0;line-height:1.45;">${p.replace(/\n/g, "<br>")}</p>`)
+          .join("");
         entityCard.innerHTML = `
           <h4>Поток данных: ${from} → ${to}</h4>
           <div class="muted-text">Связь <b>${esc(e.id)}</b> · тип: <b>${esc(e.type)}</b>${e.label ? ` · подпись на схеме: «${esc(e.label)}»` : ""}</div>
-          <div class="panel-section"><b>Что движется по связи</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.what)}</div></div>
-          <div class="panel-section"><b>Зачем этот поток</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.why)}</div></div>
-          <div class="panel-section"><b>Как данные появляются в источнике</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.atSource)}</div></div>
-          <div class="panel-section"><b>Что делается с данными в точке назначения</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.atDest)}</div></div>
+          <div class="panel-section"><b>Смысл потока (по материалам классов)</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.what)}</div></div>
+          <div class="panel-section"><b>Зачем эта связь в архитектуре</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.why)}</div></div>
+          <div class="panel-section"><b>Источник: контекст и функции</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.atSource)}</div></div>
+          <div class="panel-section"><b>Приёмник: контекст и функции</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.atDest)}</div></div>
+          <div class="panel-section"><b>Выдержки из базы (CSV-исследование)</b>${researchBlocks || `<p class="muted-text">${esc(sec.research)}</p>`}</div>
         `;
         return;
       }
