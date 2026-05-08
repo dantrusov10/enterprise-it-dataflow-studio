@@ -145,7 +145,7 @@
         <button class="btn" id="minCrossBtn">Минимум пересечений</button>
         <button class="btn" id="exportBtn">Экспорт JSON</button>
         <button class="btn" id="openKnowledgeBtn">База знаний</button>
-        <span class="badge">v5.2 rich edges + function cascade</span>
+        <span class="badge">v5.2.1 fix diagram script parse</span>
       </div>
     </aside>
     <div class="workspace-wrap">
@@ -280,9 +280,9 @@
       }
       scored.sort((a, b) => b.score - a.score);
       if (scored.length) return scored.slice(0, limit).map((x) => x.f);
-      const funcs = listFromValue(sheetData?.allFunctions?.length ? sheetData.allFunctions : sheetData?.topFunctions)
+      const fallback = listFromValue(sheetData?.allFunctions?.length ? sheetData.allFunctions : sheetData?.topFunctions)
         .filter((f) => !String(f.type || "").toLowerCase().includes("категор"));
-      return [...funcs].sort((a, b) => (b.priority || 0) - (a.priority || 0)).slice(0, limit);
+      return [...fallback].sort((a, b) => (b.priority || 0) - (a.priority || 0)).slice(0, limit);
     }
 
     function endpointKbBundle(endpointId) {
