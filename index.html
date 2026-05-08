@@ -214,6 +214,16 @@
 
     function classRefByNode(node) {
       if (!node) return null;
+      // Слой Discovery+Inventory на схеме = зона z-disc в справочнике (отдельного класса «Discovery» в CSV нет)
+      if (node.id === "n-d1") {
+        const z = zoneKbById("z-disc");
+        if (z) {
+          return {
+            key: "Discovery / Inventory",
+            data: { what: z.what, techGoal: z.techGoal, businessGoal: z.businessGoal, howWorks: z.howWorks }
+          };
+        }
+      }
       const candidates = [node.label];
       const slashParts = node.label.split("/").map(s => s.trim()).filter(Boolean);
       candidates.push(...slashParts);
@@ -232,12 +242,20 @@
 
     function classSheetByNode(node) {
       if (!node) return null;
+      const sheets = KB.classSheets || {};
+      const flat = nrm(node.label.replace(/\n/g, " "));
+      // Лист в материалах — «дискаверинг» (кириллица); не путать с листом Inventory (CMDB-реестр)
+      const isDiscoveryInventoryLayer =
+        node.id === "n-d1" ||
+        (flat.includes("discovery") && flat.includes("inventory") && !flat.includes("cloud"));
+      if (isDiscoveryInventoryLayer && sheets["дискаверинг"]) {
+        return { key: "дискаверинг", data: sheets["дискаверинг"] };
+      }
       const candidates = [
         node.label,
         ...node.label.split("/").map(s => s.trim()),
         node.label.replace(/\n/g, " ").trim()
       ].filter(Boolean);
-      const sheets = KB.classSheets || {};
       for (const key of Object.keys(sheets)) {
         const nk = nrm(key);
         for (const c of candidates) {
@@ -422,9 +440,8 @@
         { id: "n-src3", label: "ERP / Procurement", x: 500, y: 90, zoneId: "z-src" },
         { id: "n-src4", label: "IAM / IGA / PAM", x: 320, y: 145, zoneId: "z-src" },
 
-        { id: "n-d1", label: "Discovery", x: 760, y: 95, zoneId: "z-disc" },
-        { id: "n-d2", label: "Inventory", x: 930, y: 95, zoneId: "z-disc" },
-        { id: "n-d3", label: "Cloud Inventory", x: 1110, y: 95, zoneId: "z-disc" },
+        { id: "n-d1", label: "Discovery / Inventory", x: 820, y: 95, zoneId: "z-disc" },
+        { id: "n-d3", label: "Cloud Inventory", x: 1040, y: 95, zoneId: "z-disc" },
         { id: "n-d4", label: "UEM / MDM", x: 760, y: 155, zoneId: "z-disc" },
         { id: "n-d5", label: "NAC", x: 900, y: 155, zoneId: "z-disc" },
         { id: "n-d6", label: "IPAM / DNS / DHCP", x: 1005, y: 155, zoneId: "z-disc" },
@@ -472,9 +489,8 @@
         { id: "n-b2", label: "Executive Dashboards", x: 2220, y: 1080, zoneId: "z-bi" }
       ],
       edges: [
-        { id: "e1", from: "n-src1", to: "n-d1", label: "CI атрибуты", type: "direct", c: {x: 470, y: 120} },
-        { id: "e2", from: "n-d1", to: "n-n1", label: "сырые CI", type: "direct", c: {x: 1090, y: 230} },
-        { id: "e3", from: "n-d2", to: "n-n1", label: "HW/SW inventory", type: "direct", c: {x: 1230, y: 220} },
+        { id: "e1", from: "n-src1", to: "n-d1", label: "CI атрибуты · инвентарные признаки", type: "direct", c: {x: 470, y: 120} },
+        { id: "e2", from: "n-d1", to: "n-n1", label: "сырые CI · HW/SW inventory", type: "direct", c: {x: 1090, y: 230} },
         { id: "e4", from: "n-d3", to: "n-n1", label: "cloud assets", type: "direct", c: {x: 1290, y: 210} },
         { id: "e5", from: "n-n1", to: "n-n2", label: "", type: "direct", c: {x: 1500, y: 380} },
         { id: "e6", from: "n-n3", to: "n-n2", label: "", type: "direct", c: {x: 1435, y: 470} },
@@ -494,7 +510,6 @@
         { id: "e23", from: "n-f1", to: "n-f5", label: "", type: "direct", c: {x: 1580, y: 760} },
         { id: "e24", from: "n-s3", to: "n-s1", label: "", type: "direct", c: {x: 230, y: 1165} },
         { id: "e25", from: "n-s4", to: "n-s5", label: "", type: "direct", c: {x: 520, y: 1210} },
-        { id: "e28", from: "n-src1", to: "n-d2", label: "инвентарные признаки", type: "direct", c: {x: 560, y: 135} },
         { id: "e29", from: "n-n2", to: "n-t1", label: "quality CI feed", type: "direct", c: {x: 1370, y: 610} },
         { id: "e30", from: "n-t1", to: "n-t8", label: "", type: "direct", c: {x: 1260, y: 760} },
         { id: "e31", from: "n-t8", to: "n-t2", label: "", type: "direct", c: {x: 1330, y: 730} },
@@ -515,7 +530,7 @@
         { id: "e46", from: "n-src4", to: "n-s1", label: "access events", type: "direct", c: {x: 320, y: 760} },
         { id: "e47", from: "n-d6", to: "n-d1", label: "IP identity", type: "direct", c: {x: 930, y: 130} },
         { id: "e48", from: "n-d7", to: "n-d1", label: "топология сети", type: "direct", c: {x: 980, y: 120} },
-        { id: "e49", from: "n-d5", to: "n-d2", label: "допуск в сеть", type: "direct", c: {x: 920, y: 130} },
+        { id: "e49", from: "n-d5", to: "n-d1", label: "допуск в сеть", type: "direct", c: {x: 920, y: 130} },
         { id: "e50", from: "n-o5", to: "n-t4", label: "config drift", type: "direct", c: {x: 1220, y: 980} },
         { id: "e51", from: "n-o3", to: "n-t8", label: "release evidence", type: "direct", c: {x: 1120, y: 970} },
         { id: "e52", from: "n-o4", to: "n-s2", label: "patch status", type: "direct", c: {x: 980, y: 1020} },
@@ -538,7 +553,7 @@
         { id: "e63", from: "n-s4", to: "n-s5", label: "data classification", type: "alt", c: {x: 540, y: 1240} },
         { id: "e64", from: "n-c2", to: "n-hub", label: "policy tags", type: "alt", c: {x: 1680, y: 360} },
         { id: "e65", from: "n-t2", to: "n-hub", label: "enrichment", type: "alt", c: {x: 1130, y: 620} },
-        { id: "e66", from: "n-o1", to: "n-d1", label: "Monitoring ≠ Discovery", type: "alt", c: {x: 890, y: 620} },
+        { id: "e66", from: "n-o1", to: "n-d1", label: "Monitoring ≠ Discovery/Inventory", type: "alt", c: {x: 890, y: 620} },
         { id: "e67", from: "n-t2", to: "n-t1", label: "Service Desk ≠ ITSM", type: "alt", c: {x: 1190, y: 700} },
         { id: "e68", from: "n-b1", to: "n-hub", label: "BI/DWH ≠ SoT", type: "alt", c: {x: 1660, y: 900} },
         { id: "e69", from: "n-f1", to: "n-hub", label: "ITAM ≠ CMDB", type: "alt", c: {x: 1370, y: 700} }
@@ -683,7 +698,7 @@
       // Классы: аккуратная раскладка внутри зон.
       const nodePos = {
         "n-src1": [120, 95], "n-src2": [280, 95], "n-src3": [440, 95], "n-src4": [250, 155],
-        "n-d1": [680, 95], "n-d2": [860, 95], "n-d3": [1050, 95], "n-d4": [680, 165], "n-d5": [850, 165], "n-d6": [995, 165], "n-d7": [1135, 165],
+        "n-d1": [720, 95], "n-d3": [990, 95], "n-d4": [680, 165], "n-d5": [850, 165], "n-d6": [995, 165], "n-d7": [1135, 165],
         "n-c1": [1440, 95], "n-c2": [1630, 95],
         "n-n1": [820, 340], "n-n3": [690, 460], "n-n2": [930, 460], "n-n4": [1110, 460],
         "n-hub": [980, 350],
@@ -729,7 +744,7 @@
       const nodePos = {
         "n-hub": [1480, 600],
         "n-src1": [150, 130], "n-src2": [390, 130], "n-src3": [620, 130], "n-src4": [390, 220],
-        "n-d1": [1040, 130], "n-d2": [1320, 130], "n-d3": [1600, 130], "n-d4": [1040, 230], "n-d5": [1290, 230], "n-d6": [1500, 230], "n-d7": [1710, 230],
+        "n-d1": [1120, 130], "n-d3": [1480, 130], "n-d4": [1040, 230], "n-d5": [1290, 230], "n-d6": [1500, 230], "n-d7": [1710, 230],
         "n-c1": [2060, 130], "n-c2": [2360, 130],
         "n-n1": [1260, 520], "n-n3": [1080, 680], "n-n2": [1420, 680], "n-n4": [1650, 680],
         "n-t1": [1300, 1040], "n-t2": [1620, 1040], "n-t3": [1040, 1260], "n-t4": [1260, 1260], "n-t5": [1480, 1260], "n-t6": [1700, 1260], "n-t7": [1580, 1140], "n-t8": [1780, 1140], "n-t9": [1910, 1260],
