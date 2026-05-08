@@ -34,7 +34,8 @@
       transform-origin: top left;
     }
     #viewport { position: absolute; inset: 0; overflow: auto; }
-    #edges { position: absolute; inset: 0; pointer-events: all; overflow: visible; z-index: 5; }
+    /* SVG между зонами и узлами: клик по стрелке не перехватывается фоном зоны */
+    #edges { position: absolute; inset: 0; overflow: visible; z-index: 15; pointer-events: none; }
     .zone {
       position: absolute; border: 2px solid; border-radius: 12px; background: rgba(255,255,255,0.5);
       box-sizing: border-box; z-index: 10;
@@ -102,6 +103,17 @@
     .result-item { border: 1px solid #cbd5e1; border-radius: 8px; padding: 6px; margin: 6px 0; cursor: pointer; background: #fff; }
     .result-item:hover { background: #f8fafc; }
     .muted-text { color: #64748b; font-size: 11px; }
+    .detail-prompt {
+      position: fixed; left: 50%; bottom: 56px; transform: translateX(-50%); z-index: 100;
+      display: none; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;
+      max-width: min(520px, calc(100vw - 40px));
+      padding: 8px 12px; background: rgba(255,255,255,0.97); border: 1px solid #94a3b8; border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(15,23,42,0.15); font-size: 12px;
+    }
+    .detail-prompt.visible { display: flex; }
+    .detail-prompt .detail-prompt-label { font-weight: 600; color: #0f172a; }
+    .detail-prompt .btn-tiny { padding: 4px 12px; font-size: 12px; border-radius: 6px; cursor: pointer; border: 1px solid #64748b; background: #fff; }
+    .detail-prompt .btn-tiny.primary { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
   </style>
 </head>
 <body>
@@ -123,7 +135,7 @@
         <button class="btn" id="minCrossBtn">Минимум пересечений</button>
         <button class="btn" id="exportBtn">Экспорт JSON</button>
         <button class="btn" id="openKnowledgeBtn">База знаний</button>
-        <span class="badge">v4.9 sidebar+knowledge-modal</span>
+        <span class="badge">v5.0 detail-prompt + edge layering</span>
       </div>
     </aside>
     <div class="workspace-wrap">
@@ -133,6 +145,11 @@
         </div>
       </div>
       <button class="fab-knowledge" id="openKnowledgeFab">База знаний</button>
+      <div class="detail-prompt" id="detailPrompt" aria-live="polite">
+        <span class="detail-prompt-label">Подробнее в базе знаний?</span>
+        <button type="button" class="btn-tiny primary" id="detailYes">Да</button>
+        <button type="button" class="btn-tiny" id="detailNo">Нет</button>
+      </div>
       <div class="modal-backdrop" id="knowledgeBackdrop"></div>
       <div class="knowledge-modal" id="infoPanel">
         <div class="panel-head">
@@ -175,6 +192,9 @@
     const searchResults = document.getElementById("searchResults");
     const entityCard = document.getElementById("entityCard");
     const vendorCard = document.getElementById("vendorCard");
+    const detailPrompt = document.getElementById("detailPrompt");
+    const detailYes = document.getElementById("detailYes");
+    const detailNo = document.getElementById("detailNo");
 
     let editMode = false;
     let scale = 1;
@@ -185,6 +205,70 @@
     let edgeFrom = null;
     let sidebarCollapsed = false;
     let knowledgeOpen = false;
+    /** После «Нет» скрываем запрос, пока не сменится выделение или не кликнут пустое место */
+    let detailDismissedToken = "";
+    /** После «Да» / открытия базы из меню — не показывать плашку снова при том же выделении */
+    let promptSuppressedForToken = "";
+
+    function esc(s) {
+      return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+    }
+
+    function selectionDetailToken() {
+      if (selectedEdgeId) return "e:" + selectedEdgeId;
+      if (selectedNodeId) return "n:" + selectedNodeId;
+      if (selectedZoneId) return "z:" + selectedZoneId;
+      return "";
+    }
+
+    function updateDetailPrompt() {
+      const tok = selectionDetailToken();
+      if (!tok) {
+        detailPrompt.classList.remove("visible");
+        return;
+      }
+      if (tok === detailDismissedToken || tok === promptSuppressedForToken) {
+        detailPrompt.classList.remove("visible");
+        return;
+      }
+      detailPrompt.classList.add("visible");
+    }
+
+    function syncPromptSuppressionForNewSelection() {
+      const tok = selectionDetailToken();
+      if (promptSuppressedForToken && promptSuppressedForToken !== tok) promptSuppressedForToken = "";
+    }
+
+    function endpointTitlePlain(id) {
+      if (id.startsWith("z-")) return zoneById(id)?.title || id;
+      return nodeById(id)?.label?.replace(/\n/g, " ") || id;
+    }
+
+    function buildEdgeKnowledgeSections(e) {
+      if (e.kb && typeof e.kb === "object") {
+        const k = e.kb;
+        return {
+          what: k.what || "",
+          why: k.why || "",
+          atSource: k.atSource || "",
+          atDest: k.atDest || ""
+        };
+      }
+      const fromT = endpointTitlePlain(e.from);
+      const toT = endpointTitlePlain(e.to);
+      const label = (e.label || "").trim();
+      const typeRu =
+        e.type === "zone" ? "логическая связь уровня зон (агрегированный поток между крупными блоками архитектуры)." :
+        e.type === "alt" ? "связь типа «альтернатива / оговорка»: подчёркивает отличие ролей или риск путаницы, а не обязательный ежедневный обмен данными." :
+        "операционная интеграция: регулярный или событийный обмен данными между классами решений.";
+      const what = label
+        ? `На схеме поток помечен как «${label}». Это основной смысл передаваемых сведений или контекста между «${fromT}» и «${toT}».`
+        : `На связи нет отдельной подписи — это канал между «${fromT}» и «${toT}». Содержимое определяется типовыми объектами учёта и событиями в этих классах (CI, активы, тикеты, события и т.д.).`;
+      const why = `Связь нужна, чтобы «${toT}» мог опираться на данные и контекст из «${fromT}» без ручного дублирования: единая картина для процессов, отчётности и управления рисками. Тип связи: ${typeRu}`;
+      const atSource = `В источнике «${fromT}» данные обычно появляются в результате штатной работы системы: сбор с агентов/сканеров, API облака или on-prem, журналы, конфигурации, справочники, действия пользователей или синхронизация с соседними реестрами — в зависимости от класса решения.`;
+      const atDest = `В приёмнике «${toT}» поток используется по назначению этого класса: отображение в интерфейсах, запуск процессов (workflow), обогащение записей, расчёт метрик, корреляция событий, запись в реестр (например CMDB), поддержка SLA или compliance — без «переизобретения» учёта на стороне приёмника.`;
+      return { what, why, atSource, atDest };
+    }
     const KB = window.ENTERPRISE_KB || { zones: {}, classReference: {}, classSheets: {} };
     const SEARCH_SYNONYMS = {
       "стоимость": ["finops", "финансы", "затраты", "tco", "бюджет"],
@@ -280,11 +364,17 @@
 
     function openKnowledgeModal(options = {}) {
       const focusSearch = options.focusSearch !== false;
+      const fromMenu = !!options.fromMenu;
+      if (fromMenu) {
+        const t = selectionDetailToken();
+        if (t) promptSuppressedForToken = t;
+      }
       knowledgeOpen = true;
       infoPanel.classList.add("open");
       knowledgeBackdrop.classList.add("open");
       document.body.style.overflow = "hidden";
       renderEntityCard();
+      updateDetailPrompt();
       if (focusSearch) searchInput.focus();
     }
 
@@ -293,6 +383,7 @@
       infoPanel.classList.remove("open");
       knowledgeBackdrop.classList.remove("open");
       document.body.style.overflow = "";
+      updateDetailPrompt();
     }
 
     function renderEntityCard() {
@@ -338,22 +429,24 @@
       if (selectedEdgeId) {
         const e = edgeById(selectedEdgeId);
         if (!e) return;
-        const from = e.from.startsWith("z-") ? zoneById(e.from)?.title : nodeById(e.from)?.label;
-        const to = e.to.startsWith("z-") ? zoneById(e.to)?.title : nodeById(e.to)?.label;
+        const from = esc(endpointTitlePlain(e.from));
+        const to = esc(endpointTitlePlain(e.to));
+        const sec = buildEdgeKnowledgeSections(e);
         entityCard.innerHTML = `
-          <h4>Связь: ${e.id}</h4>
-          <div><b>Откуда:</b> ${from || e.from}</div>
-          <div><b>Куда:</b> ${to || e.to}</div>
-          <div><b>Тип:</b> ${e.type}</div>
-          <div><b>Комментарий:</b> ${e.label || "—"}</div>
+          <h4>Поток данных: ${from} → ${to}</h4>
+          <div class="muted-text">Связь <b>${esc(e.id)}</b> · тип: <b>${esc(e.type)}</b>${e.label ? ` · подпись на схеме: «${esc(e.label)}»` : ""}</div>
+          <div class="panel-section"><b>Что движется по связи</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.what)}</div></div>
+          <div class="panel-section"><b>Зачем этот поток</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.why)}</div></div>
+          <div class="panel-section"><b>Как данные появляются в источнике</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.atSource)}</div></div>
+          <div class="panel-section"><b>Что делается с данными в точке назначения</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.atDest)}</div></div>
         `;
         return;
       }
 
       entityCard.innerHTML = `
         <h4>Подсказка</h4>
-        <div>Кликните на зону, класс или стрелку — справа откроется карточка с контекстом.</div>
-        <div class="hint">В режиме редактирования можно двигать зоны/классы и менять кривизну стрелки.</div>
+        <div>Выделите зону, класс или стрелку на схеме. Нажмите «Да» внизу экрана, чтобы открыть базу знаний с описанием.</div>
+        <div class="hint">Или откройте «База знаний» из меню — сразу появится модальное окно (поиск и карточки).</div>
       `;
     }
 
@@ -804,6 +897,8 @@
         workspace.appendChild(el);
       });
 
+      workspace.appendChild(edgesSvg);
+
       // nodes
       state.nodes.forEach(n => {
         const el = document.createElement("div");
@@ -877,24 +972,27 @@
       selectedEdgeId = edgeId;
       selectedNodeId = null;
       selectedZoneId = null;
+      syncPromptSuppressionForNewSelection();
       render();
-      openKnowledgeModal({ focusSearch: false });
+      updateDetailPrompt();
     }
 
     function selectNode(nodeId) {
       selectedNodeId = nodeId;
       selectedEdgeId = null;
       selectedZoneId = null;
+      syncPromptSuppressionForNewSelection();
       render();
-      openKnowledgeModal({ focusSearch: false });
+      updateDetailPrompt();
     }
 
     function selectZone(zoneId) {
       selectedZoneId = zoneId;
       selectedNodeId = null;
       selectedEdgeId = null;
+      syncPromptSuppressionForNewSelection();
       render();
-      openKnowledgeModal({ focusSearch: false });
+      updateDetailPrompt();
     }
 
     function applySelection() {
@@ -1034,8 +1132,11 @@
           selectedEdgeId = null;
           selectedNodeId = null;
           selectedZoneId = null;
+          detailDismissedToken = "";
+          promptSuppressedForToken = "";
           render();
           if (knowledgeOpen) renderEntityCard();
+          updateDetailPrompt();
         }
       };
 
@@ -1066,6 +1167,7 @@
               edgeFrom = null;
               addEdgeBtn.classList.remove("active");
               render();
+              updateDetailPrompt();
             }
             ev.stopPropagation();
             return;
@@ -1264,8 +1366,20 @@
       toggleSidebarBtn.textContent = sidebarCollapsed ? "⟩" : "⟨";
       toggleSidebarBtn.title = sidebarCollapsed ? "Развернуть меню" : "Свернуть меню";
     });
-    openKnowledgeBtn.addEventListener("click", openKnowledgeModal);
-    openKnowledgeFab.addEventListener("click", openKnowledgeModal);
+    openKnowledgeBtn.addEventListener("click", () => openKnowledgeModal({ fromMenu: true }));
+    openKnowledgeFab.addEventListener("click", () => openKnowledgeModal({ fromMenu: true }));
+    detailYes.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const tok = selectionDetailToken();
+      if (!tok) return;
+      promptSuppressedForToken = tok;
+      openKnowledgeModal({ focusSearch: false });
+    });
+    detailNo.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      detailDismissedToken = selectionDetailToken();
+      updateDetailPrompt();
+    });
     closeKnowledgeBtn.addEventListener("click", closeKnowledgeModal);
     knowledgeBackdrop.addEventListener("click", closeKnowledgeModal);
     document.addEventListener("keydown", (e) => {
