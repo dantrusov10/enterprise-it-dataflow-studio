@@ -9,6 +9,27 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
+/**
+ * UTF-8 (в т.ч. с BOM) или windows-1251 — иначе Excel/Notepad часто дают байты,
+ * которые при fs.readFileSync(..., "utf8") превращаются в U+FFFD () в UI.
+ */
+function readFileTextSmart(filePath) {
+  const buf = fs.readFileSync(filePath);
+  if (!buf.length) return "";
+  if (buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+    return buf.slice(3).toString("utf8");
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buf);
+  } catch {
+    try {
+      return new TextDecoder("windows-1251").decode(buf);
+    } catch {
+      return buf.toString("utf8");
+    }
+  }
+}
+
 function parseCSVLine(line) {
   const out = [];
   let i = 0;
@@ -40,7 +61,7 @@ function parseCSVLine(line) {
 }
 
 function readCSV(filePath, minCols = 1) {
-  const raw = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
+  const raw = readFileTextSmart(filePath).replace(/^\uFEFF/, "");
   const lines = raw.split(/\r?\n/).filter((l) => l.length > 0);
   if (!lines.length) return [];
   const rows = [];
@@ -117,10 +138,22 @@ for (const fname of funcFiles) {
 }
 
 const corpusPath = path.join(repoRoot, "enterprise-it-research-corpus.txt");
+const bundledLandscapePath = path.join(
+  repoRoot,
+  "Enterprise_IT_Landscape_Зоны_Классы_Связи.txt"
+);
 let researchCorpus = "";
 if (fs.existsSync(corpusPath)) {
-  researchCorpus = fs.readFileSync(corpusPath, "utf8").replace(/^\uFEFF/, "").trim();
-  console.log("researchCorpus:", researchCorpus.length, "chars");
+  researchCorpus = readFileTextSmart(corpusPath).trim();
+  console.log("researchCorpus:", path.basename(corpusPath), researchCorpus.length, "chars");
+} else if (fs.existsSync(bundledLandscapePath)) {
+  researchCorpus = readFileTextSmart(bundledLandscapePath).trim();
+  console.log(
+    "researchCorpus: fallback",
+    path.basename(bundledLandscapePath),
+    researchCorpus.length,
+    "chars"
+  );
 }
 
 const payload = {
@@ -133,5 +166,5 @@ const payload = {
 
 const outPath = path.join(repoRoot, "enterprise-it-dataflow-knowledge.js");
 const json = JSON.stringify(payload);
-fs.writeFileSync(outPath, `window.ENTERPRISE_KB = ${json};`, "utf8");
+fs.writeFileSync(outPath, `window.ENTERPRISE_KB = ${json};`, { encoding: "utf8" });
 console.log("Wrote", outPath, "sheets:", Object.keys(classSheets).length);
