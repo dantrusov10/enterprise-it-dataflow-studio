@@ -19,6 +19,10 @@
     .sidebar-body { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
     .sidebar.collapsed .sidebar-body { display: none; }
     .sidebar .btn { width: 100%; text-align: left; }
+    .sidebar-search-section { border-bottom: 1px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 4px; }
+    .sidebar-search-section h3 { margin: 0 0 6px 0; font-size: 12px; font-weight: 700; color: #0f172a; }
+    .sidebar-search-results { max-height: 240px; overflow-y: auto; margin-top: 6px; font-size: 11px; }
+    .sidebar-search-results h4 { margin: 6px 0 4px 0; font-size: 11px; }
     .btn { border: 1px solid #94a3b8; background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 13px; }
     .btn:hover { background: #f8fafc; }
     .btn.active { background: #0f172a; color: #fff; border-color: #0f172a; }
@@ -124,6 +128,12 @@
         <button class="icon-btn" id="toggleSidebarBtn">⟨</button>
       </div>
       <div class="sidebar-body">
+        <div class="sidebar-search-section">
+          <h3>Поиск по базе</h3>
+          <input id="sidebarSearchInput" class="search-input" type="search" placeholder="Задача, функция, синоним…" autocomplete="off" />
+          <div class="hint" style="font-size:11px;margin-top:4px;">Семантика v2: нормализация + тезаурус.</div>
+          <div id="sidebarSearchResults" class="sidebar-search-results"></div>
+        </div>
         <button class="btn" id="editToggle">Редактировать: выкл</button>
         <button class="btn" id="addZoneBtn">+ Зона</button>
         <button class="btn" id="addClassBtn">+ Класс</button>
@@ -135,7 +145,7 @@
         <button class="btn" id="minCrossBtn">Минимум пересечений</button>
         <button class="btn" id="exportBtn">Экспорт JSON</button>
         <button class="btn" id="openKnowledgeBtn">База знаний</button>
-        <span class="badge">v5.0 detail-prompt + edge layering</span>
+        <span class="badge">v5.1.1 sidebar search + full functions</span>
       </div>
     </aside>
     <div class="workspace-wrap">
@@ -157,10 +167,7 @@
           <button class="icon-btn" id="closeKnowledgeBtn">✕</button>
         </div>
         <div class="knowledge-modal-body">
-          <input id="searchInput" class="search-input" placeholder="Поиск: функция, задача, результат, класс..." />
-          <div class="hint">Поддерживается лексический поиск + базовые синонимы.</div>
-          <div id="searchResults" class="panel-section"></div>
-          <div id="entityCard" class="panel-section"></div>
+          <div id="entityCard" class="panel-section" style="border-top:none;padding-top:0;"></div>
           <div id="vendorCard" class="panel-section"></div>
         </div>
       </div>
@@ -188,8 +195,8 @@
     const exportBtn = document.getElementById("exportBtn");
     const infoPanel = document.getElementById("infoPanel");
     const closeKnowledgeBtn = document.getElementById("closeKnowledgeBtn");
-    const searchInput = document.getElementById("searchInput");
-    const searchResults = document.getElementById("searchResults");
+    const sidebarSearchInput = document.getElementById("sidebarSearchInput");
+    const sidebarSearchResults = document.getElementById("sidebarSearchResults");
     const entityCard = document.getElementById("entityCard");
     const vendorCard = document.getElementById("vendorCard");
     const detailPrompt = document.getElementById("detailPrompt");
@@ -209,6 +216,8 @@
     let detailDismissedToken = "";
     /** После «Да» / открытия базы из меню — не показывать плашку снова при том же выделении */
     let promptSuppressedForToken = "";
+    /** В карточке класса: показать полное дерево функций */
+    let classDetailExpanded = false;
 
     function esc(s) {
       return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
@@ -270,19 +279,76 @@
       return { what, why, atSource, atDest };
     }
     const KB = window.ENTERPRISE_KB || { zones: {}, classReference: {}, classSheets: {} };
-    const SEARCH_SYNONYMS = {
-      "стоимость": ["finops", "финансы", "затраты", "tco", "бюджет"],
-      "лицензии": ["sam", "license", "entitlement", "право использования"],
-      "инцидент": ["incident", "service desk", "itsm", "тикет"],
-      "дискавери": ["discovery", "инвентаризация", "inventory", "сканирование"],
-      "безопасность": ["siem", "edr", "vulnerability", "grc", "pam", "dlp"],
-      "изменения": ["change", "release", "deployment", "patch", "configuration"],
-      "актив": ["asset", "itam", "cmdb", "ci", "оборудование", "по"],
-      "доступ": ["iam", "iga", "pam", "идентичность", "роль"]
-    };
+
+    const RU_STEM_SUFFIXES = [
+      "иями","ями","остями","ях","ах","ами","ого","ему","ому","ыми","ех","ох","им","ым","ую","юю","ых","их","ая","ое","ые","ий","ой","ей","ем","ам","ям","ию","ия","ие","ов","ев","ть","ся","сь","ла","ли","ло","на","но","ны","ет","ют","ат","ят","ить","ать","ение","ения","ости","ания","ован","ирован","ельн","ество","нн","лись"
+    ];
+
+    const THESAURUS_GROUPS = [
+      ["инцидент","инциденты","incident","outage","авария","сбой","простой","тикет","ticket","обращение","дежурство","major","p1","эскалац"],
+      ["лиценз","license","licence","sam","entitlement","елп","elp","true-up","trueup","комплаенс лиценз"],
+      ["дискавери","discovery","инвентаризац","inventory","сканир","обнаружен","снмп","snmp","агент","wmi","ssh"],
+      ["безопасн","security","siem","edr","угроз","vulnerab","уязвим","grc","кибер","soc","pam","dlp","форензик"],
+      ["изменен","change","релиз","release","деплой","deployment","патч","patch","конфигур","drift","rollout"],
+      ["актив","asset","itam","cmdb","ci","golden","золот","оборудован","hw","издел"],
+      ["доступ","access","iam","iga","идентич","роль","провижин","provision","joiner","mover","leaver","sso"],
+      ["монитор","monitor","наблюдаем","observability","алерт","метрик","apm","лог","trace","telemet"],
+      ["финанс","finops","стоимост","tco","roi","бюджет","chargeback","закуп","erp","капекс","списан"],
+      ["облак","cloud","kubernetes","k8s","контейнер","vpc","s3","bucket","мультиоблак"],
+      ["itsm","сервис деск","service desk","заявк","каталог услуг","service catalog","sla"],
+      ["нормализ","dedup","дедуп","сопостав","reconcil","сигнатур","recognition","дедуплик"],
+      ["данн","data","dataset","отчет","отчёт","dashboard","kpi","аналит"],
+      ["событ","event","syslog","коррел","correlat","операц","sre"]
+    ];
 
     function nrm(value) {
       return String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+    }
+
+    function prepSearch(s) {
+      return nrm(String(s || "").replace(/ё/g, "е"));
+    }
+
+    function stemToken(tok) {
+      let w = prepSearch(tok).replace(/[^a-z0-9а-яіїєґ]+/gi, "");
+      if (w.length < 4) return w;
+      for (const suf of RU_STEM_SUFFIXES) {
+        if (w.length > suf.length + 3 && w.endsWith(suf)) return w.slice(0, -suf.length);
+      }
+      if (w.length > 5 && /(и|ы|а|я|о|е|й|ь|ю)$/.test(w)) w = w.slice(0, -1);
+      return w;
+    }
+
+    function tokenizeQuery(q) {
+      return prepSearch(q).split(/[^a-z0-9а-яіїєґ]+/i).filter((t) => t.length >= 2);
+    }
+
+    function expandQueryTokens(rawTokens) {
+      const set = new Set();
+      for (const raw of rawTokens) {
+        const p = prepSearch(raw);
+        if (!p) continue;
+        set.add(p);
+        set.add(stemToken(p));
+        if (/[a-z]/.test(p)) {
+          const e = p.replace(/(ing|ed|es|s)$/i, "");
+          if (e.length > 2) set.add(e);
+        }
+        for (const g of THESAURUS_GROUPS) {
+          const hit = g.some((x) => {
+            const nx = prepSearch(x);
+            if (!nx || nx.length < 2) return false;
+            return p.includes(nx) || nx.includes(p) || stemToken(p) === stemToken(nx) ||
+              stemToken(p).includes(stemToken(nx)) || stemToken(nx).includes(stemToken(p));
+          });
+          if (hit) g.forEach((x) => { const nx = prepSearch(x); if (nx) { set.add(nx); set.add(stemToken(nx)); } });
+        }
+      }
+      return [...set].filter((t) => t && t.length >= 2);
+    }
+
+    function normalizeForMatch(s) {
+      return prepSearch(s).replace(/\s+/g, " ");
     }
 
     function listFromValue(v) {
@@ -375,7 +441,7 @@
       document.body.style.overflow = "hidden";
       renderEntityCard();
       updateDetailPrompt();
-      if (focusSearch) searchInput.focus();
+      if (focusSearch && sidebarSearchInput) sidebarSearchInput.focus();
     }
 
     function closeKnowledgeModal() {
@@ -386,23 +452,56 @@
       updateDetailPrompt();
     }
 
+    function renderClassFunctionsHtml(sheetData) {
+      const all = listFromValue(sheetData?.allFunctions);
+      const top = listFromValue(sheetData?.topFunctions);
+      const useFull = classDetailExpanded && all.length > 0;
+      const list = useFull ? all : (top.length ? top : all);
+      if (!list.length) return '<div class="muted-text">Нет функций в загруженном листе.</div>';
+      const parts = [];
+      for (const f of list) {
+        const typ = String(f.type || "").toLowerCase();
+        const pr = f.priority ?? "?";
+        const title = esc(f.title || "без названия");
+        if (typ.includes("категор")) {
+          parts.push(`<div style="margin-top:10px;font-weight:700;color:#0f172a;">${title} <span class="pill">P${pr}</span></div>`);
+          if (useFull && (f.general || f.technical || f.business)) {
+            parts.push(`<div class="muted-text" style="margin:4px 0 8px 10px;line-height:1.4;">${esc([f.general, f.technical, f.business].filter(Boolean).join(" "))}</div>`);
+          }
+          continue;
+        }
+        if (useFull) {
+          parts.push(`<details style="margin:6px 0 6px 6px;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;background:#fafafa;"><summary style="cursor:pointer;font-weight:600;">${title} <span class="pill">P${pr}</span></summary><div style="margin-top:8px;line-height:1.45;font-size:11px;"><b>Общее:</b> ${esc(f.general)}</div><div style="margin-top:4px;"><b>Техника:</b> ${esc(f.technical)}</div><div style="margin-top:4px;"><b>Бизнес:</b> ${esc(f.business)}</div></details>`);
+        } else {
+          const snippet = esc((f.business || f.general || "").slice(0, 240));
+          const more = ((f.business || f.general || "").length > 240) ? "…" : "";
+          parts.push(`<div class="result-item" style="margin:6px 0;"><div><b>${title}</b> <span class="pill">P${pr}</span></div><div class="muted-text">${snippet}${more}</div></div>`);
+        }
+      }
+      return parts.join("");
+    }
+
     function renderEntityCard() {
       if (selectedNodeId) {
         const node = nodeById(selectedNodeId);
         if (!node) return;
         const ref = classRefByNode(node);
         const sheet = classSheetByNode(node);
-        const top = listFromValue(sheet?.data?.topFunctions);
+        const fnHtml = renderClassFunctionsHtml(sheet?.data);
+        const toggleLabel = classDetailExpanded ? "Кратко (топ функций)" : "Подробнее (все функции класса)";
         entityCard.innerHTML = `
-          <h4>Класс: ${node.label.replace(/\n/g, "<br>")}</h4>
-          <div class="muted-text">Каскад: кратко -> функции (top).</div>
-          <div style="margin-top:6px;"><b>Что это:</b> ${ref?.data?.what || "нет данных"}</div>
-          <div style="margin-top:4px;"><b>Тех. цель:</b> ${ref?.data?.techGoal || "нет данных"}</div>
-          <div style="margin-top:4px;"><b>Бизнес-цель:</b> ${ref?.data?.businessGoal || "нет данных"}</div>
-          <div style="margin-top:4px;"><b>Как работает:</b> ${ref?.data?.howWorks || "нет данных"}</div>
+          <h4>Класс: ${node.label.split(/\n/).map((l) => esc(l)).join("<br>")}</h4>
+          <div style="margin:8px 0;">
+            <button type="button" class="btn" data-action="toggle-class-detail" style="font-size:12px;padding:4px 10px;">${toggleLabel}</button>
+            ${sheet?.data?.functionCount != null ? `<span class="muted-text" style="margin-left:8px;">в листе: ${sheet.data.functionCount} записей</span>` : ""}
+          </div>
+          <div style="margin-top:6px;"><b>Что это:</b> ${esc(ref?.data?.what || "нет данных")}</div>
+          <div style="margin-top:4px;"><b>Тех. цель:</b> ${esc(ref?.data?.techGoal || "нет данных")}</div>
+          <div style="margin-top:4px;"><b>Бизнес-цель:</b> ${esc(ref?.data?.businessGoal || "нет данных")}</div>
+          <div style="margin-top:4px;"><b>Как работает:</b> ${esc(ref?.data?.howWorks || "нет данных")}</div>
           <div class="panel-section">
-            <b>Функции (top, приоритет):</b>
-            ${top.length ? top.map(f => `<div class="result-item"><div><b>${f.title || "без названия"}</b> <span class="pill">P${f.priority || "?"}</span></div><div class="muted-text">${f.business || f.general || ""}</div></div>`).join("") : '<div class="muted-text">Нет функций в загруженном листе.</div>'}
+            <b>${classDetailExpanded ? "Все функции / категории" : "Функции (кратко, по приоритету)"}:</b>
+            ${fnHtml}
           </div>
         `;
         return;
@@ -413,14 +512,14 @@
         const kb = zoneKbById(selectedZoneId);
         if (!zone) return;
         entityCard.innerHTML = `
-          <h4>Зона: ${zone.title}</h4>
-          <div style="margin-top:6px;"><b>Что это:</b> ${kb?.what || "нет данных"}</div>
-          <div style="margin-top:4px;"><b>Тех. цель:</b> ${kb?.techGoal || "нет данных"}</div>
-          <div style="margin-top:4px;"><b>Бизнес-цель:</b> ${kb?.businessGoal || "нет данных"}</div>
-          <div style="margin-top:4px;"><b>Как работает:</b> ${kb?.howWorks || "нет данных"}</div>
+          <h4>Зона: ${esc(zone.title)}</h4>
+          <div style="margin-top:6px;"><b>Что это:</b> ${esc(kb?.what || "нет данных")}</div>
+          <div style="margin-top:4px;"><b>Тех. цель:</b> ${esc(kb?.techGoal || "нет данных")}</div>
+          <div style="margin-top:4px;"><b>Бизнес-цель:</b> ${esc(kb?.businessGoal || "нет данных")}</div>
+          <div style="margin-top:4px;"><b>Как работает:</b> ${esc(kb?.howWorks || "нет данных")}</div>
           <div class="panel-section">
             <b>Классы в зоне:</b>
-            <div>${state.nodes.filter(n => n.zoneId === zone.id).map(n => `<span class="pill">${n.label.replace(/\n/g, " ")}</span>`).join("") || '<span class="muted-text">нет</span>'}</div>
+            <div>${state.nodes.filter(n => n.zoneId === zone.id).map(n => `<span class="pill">${esc(n.label.replace(/\n/g, " "))}</span>`).join("") || '<span class="muted-text">нет</span>'}</div>
           </div>
         `;
         return;
@@ -446,7 +545,7 @@
       entityCard.innerHTML = `
         <h4>Подсказка</h4>
         <div>Выделите зону, класс или стрелку на схеме. Нажмите «Да» внизу экрана, чтобы открыть базу знаний с описанием.</div>
-        <div class="hint">Или откройте «База знаний» из меню — сразу появится модальное окно (поиск и карточки).</div>
+        <div class="hint">Поиск по материалам — в боковом меню. «База знаний» в меню открывает карточку выбранного объекта.</div>
       `;
     }
 
@@ -464,7 +563,8 @@
       state.nodes.forEach((n) => {
         const ref = classRefByNode(n)?.data || {};
         const sheet = classSheetByNode(n)?.data || {};
-        const functionsText = listFromValue(sheet.topFunctions).map(f => `${f.title || ""} ${f.general || ""} ${f.business || ""}`).join(" ");
+        const funcList = listFromValue(sheet.allFunctions?.length ? sheet.allFunctions : sheet.topFunctions);
+        const functionsText = funcList.map(f => `${f.title || ""} ${f.general || ""} ${f.technical || ""} ${f.business || ""}`).join(" ");
         items.push({
           kind: "node",
           id: n.id,
@@ -475,35 +575,49 @@
       return items;
     }
 
+    function scoreSearchItem(item, tokens) {
+      const hay = normalizeForMatch(`${item.title} ${item.body}`);
+      const ht = normalizeForMatch(item.title);
+      const hayWords = hay.split(" ").filter(Boolean);
+      let score = 0;
+      for (const t of tokens) {
+        if (!t || t.length < 2) continue;
+        if (hay.includes(t)) score += ht.includes(t) ? 7 : 3;
+        const st = stemToken(t);
+        if (st.length >= 3 && hay.includes(st)) score += 2;
+      }
+      for (const t of tokens) {
+        const st = stemToken(t);
+        if (st.length < 3) continue;
+        for (const w of hayWords) {
+          if (stemToken(w) === st) { score += 2; break; }
+        }
+      }
+      return score;
+    }
+
     function runSearch(query) {
-      const q = nrm(query);
-      if (!q) {
-        searchResults.innerHTML = "";
+      const rawToks = tokenizeQuery(query);
+      if (!rawToks.length) {
+        sidebarSearchResults.innerHTML = "";
         return;
       }
-      const expanded = [q];
-      Object.entries(SEARCH_SYNONYMS).forEach(([k, arr]) => {
-        if (q.includes(nrm(k)) || arr.some(a => q.includes(nrm(a)))) {
-          expanded.push(nrm(k), ...arr.map(nrm));
-        }
-      });
-      const tokens = Array.from(new Set(expanded.join(" ").split(/\s+/).filter(Boolean)));
-      const results = searchIndexItems().map(item => {
-        const hay = `${nrm(item.title)} ${nrm(item.body)}`;
-        let score = 0;
-        tokens.forEach(t => { if (hay.includes(t)) score += (item.title.toLowerCase().includes(t) ? 4 : 1); });
-        return { ...item, score };
-      }).filter(r => r.score > 0).sort((a, b) => b.score - a.score).slice(0, 10);
+      const tokens = expandQueryTokens(rawToks);
+      const results = searchIndexItems()
+        .map((item) => ({ ...item, score: scoreSearchItem(item, tokens) }))
+        .filter((r) => r.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 15);
 
       if (!results.length) {
-        searchResults.innerHTML = `<div class="muted-text">Ничего не найдено. Уточните запрос или используйте синоним.</div>`;
+        sidebarSearchResults.innerHTML = `<div class="muted-text">Ничего не найдено. Попробуйте другое слово или тему из смежного блока тезауруса.</div>`;
         return;
       }
-      searchResults.innerHTML = `
-        <h4>Результаты поиска</h4>
-        ${results.map(r => `<div class="result-item" data-result-kind="${r.kind}" data-result-id="${r.id}"><b>${r.title}</b><div class="muted-text">${r.kind === "zone" ? "зона" : "класс"} · score ${r.score}</div></div>`).join("")}
+      sidebarSearchResults.innerHTML = `
+        <h4>Результаты</h4>
+        ${results.map(r => `<div class="result-item" data-result-kind="${r.kind}" data-result-id="${r.id}"><b>${esc(r.title)}</b><div class="muted-text">${r.kind === "zone" ? "зона" : "класс"} · ${r.score}</div></div>`).join("")}
       `;
-      Array.from(searchResults.querySelectorAll(".result-item")).forEach(el => {
+      Array.from(sidebarSearchResults.querySelectorAll(".result-item")).forEach(el => {
         el.addEventListener("click", () => {
           const kind = el.dataset.resultKind;
           const id = el.dataset.resultId;
@@ -969,6 +1083,7 @@
     }
 
     function selectEdge(edgeId) {
+      classDetailExpanded = false;
       selectedEdgeId = edgeId;
       selectedNodeId = null;
       selectedZoneId = null;
@@ -978,6 +1093,7 @@
     }
 
     function selectNode(nodeId) {
+      if (selectedNodeId !== nodeId) classDetailExpanded = false;
       selectedNodeId = nodeId;
       selectedEdgeId = null;
       selectedZoneId = null;
@@ -987,6 +1103,7 @@
     }
 
     function selectZone(zoneId) {
+      classDetailExpanded = false;
       selectedZoneId = zoneId;
       selectedNodeId = null;
       selectedEdgeId = null;
@@ -1129,6 +1246,7 @@
       // workspace click clear
       workspace.onclick = (e) => {
         if (e.target === workspace || e.target === edgesSvg || e.target === viewport) {
+          classDetailExpanded = false;
           selectedEdgeId = null;
           selectedNodeId = null;
           selectedZoneId = null;
@@ -1359,7 +1477,14 @@
     simplifyRoutes("normal");
     renderVendorStub();
     renderEntityCard();
-    searchInput.addEventListener("input", (e) => runSearch(e.target.value));
+    sidebarSearchInput.addEventListener("input", (e) => runSearch(e.target.value));
+    document.querySelector(".knowledge-modal-body").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-action=\"toggle-class-detail\"]");
+      if (btn) {
+        classDetailExpanded = !classDetailExpanded;
+        renderEntityCard();
+      }
+    });
     toggleSidebarBtn.addEventListener("click", () => {
       sidebarCollapsed = !sidebarCollapsed;
       sidebar.classList.toggle("collapsed", sidebarCollapsed);
