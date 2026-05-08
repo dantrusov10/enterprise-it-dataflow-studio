@@ -118,6 +118,70 @@
     .detail-prompt .detail-prompt-label { font-weight: 600; color: #0f172a; }
     .detail-prompt .btn-tiny { padding: 4px 12px; font-size: 12px; border-radius: 6px; cursor: pointer; border: 1px solid #64748b; background: #fff; }
     .detail-prompt .btn-tiny.primary { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+
+    /* База знаний: единые раскрывающиеся блоки */
+    details.kb-cascade {
+      margin: 8px 0;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 2px 10px 8px;
+      background: #fafafa;
+    }
+    details.kb-cascade > summary {
+      cursor: pointer;
+      font-weight: 600;
+      list-style-position: outside;
+      margin-left: 0.4rem;
+      padding: 6px 0 4px;
+    }
+    details.kb-cascade.fn-category { background: #f1f5f9; border-color: #cbd5e1; }
+    details.kb-cascade > summary .kb-cascade-hint {
+      font-weight: 400;
+      color: #64748b;
+      font-size: 11px;
+    }
+    details.kb-nested {
+      margin: 6px 0 0;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 2px 8px 6px;
+      background: #fff;
+    }
+    details.kb-nested > summary {
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 12px;
+      list-style-position: outside;
+      margin-left: 0.35rem;
+      padding: 4px 0;
+    }
+    .kb-src-badge {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      padding: 1px 6px;
+      border-radius: 4px;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .kb-src-badge.ref { background: #dbeafe; color: #1d4ed8; }
+    .kb-src-badge.sheet { background: #d1fae5; color: #047857; }
+    .kb-src-badge.matrix { background: #ede9fe; color: #6d28d9; }
+    .kb-ref-block {
+      border-left: 3px solid #2563eb;
+      padding: 6px 4px 6px 12px;
+      margin: 10px 0;
+      background: linear-gradient(90deg, rgba(37,99,235,0.06), transparent);
+      border-radius: 0 8px 8px 0;
+    }
+    .kb-edge-corpus {
+      border-left: 3px solid #b45309;
+      padding-left: 12px;
+      margin-top: 8px;
+    }
+    .kb-edge-corpus .kb-src-badge { background: #ffedd5; color: #9a3412; }
   </style>
 </head>
 <body>
@@ -131,7 +195,7 @@
         <div class="sidebar-search-section">
           <h3>Поиск по базе</h3>
           <input id="sidebarSearchInput" class="search-input" type="search" placeholder="Задача, функция, синоним…" autocomplete="off" />
-          <div class="hint" style="font-size:11px;margin-top:4px;">Семантика v2. В карточке класса раскрывайте функцию — полный текст и заготовка под вендоров. Связи: текст из справочника и листов + опционально corpus.</div>
+          <div class="hint" style="font-size:11px;margin-top:4px;">Семантика v2. В модалке — топ функций; полный лист и таблица конкурентов — ссылка в карточке класса. Синяя полоса = справочник, зелёные вложения = лист Excel.</div>
           <div id="sidebarSearchResults" class="sidebar-search-results"></div>
         </div>
         <button class="btn" id="editToggle">Редактировать: выкл</button>
@@ -145,7 +209,7 @@
         <button class="btn" id="minCrossBtn">Минимум пересечений</button>
         <button class="btn" id="exportBtn">Экспорт JSON</button>
         <button class="btn" id="openKnowledgeBtn">База знаний</button>
-        <span class="badge">v5.2.2 UTF-8 build + research corpus</span>
+        <span class="badge">v5.3 unified cascades + class detail page</span>
       </div>
     </aside>
     <div class="workspace-wrap">
@@ -216,9 +280,6 @@
     let detailDismissedToken = "";
     /** После «Да» / открытия базы из меню — не показывать плашку снова при том же выделении */
     let promptSuppressedForToken = "";
-    /** В карточке класса: показать полное дерево функций */
-    let classDetailExpanded = false;
-
     function esc(s) {
       return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
     }
@@ -600,50 +661,78 @@
       updateDetailPrompt();
     }
 
-    function renderFunctionCascadeBody(f) {
-      const vendorStub = `
-        <div style="margin-top:12px;padding-top:10px;border-top:1px dashed #cbd5e1;">
-          <b>У конкурентов и вендоров</b>
-          <div class="muted-text" style="margin-top:4px;line-height:1.45;font-size:12px;">
-            После подключения БД: для этой функции появятся отметки «есть/нет/частично», ссылки на первоисточники (документация вендора, отчёты аналитиков) и сопоставление с вашей матрицей.
-          </div>
-        </div>`;
-      return `
-        <div style="margin-top:8px;line-height:1.45;font-size:12px;">
-          <div><b>Общее:</b> ${esc(f.general)}</div>
-          <div style="margin-top:6px;"><b>Техника:</b> ${esc(f.technical)}</div>
-          <div style="margin-top:6px;"><b>Бизнес:</b> ${esc(f.business)}</div>
-          ${vendorStub}
-        </div>`;
+    function renderFunctionNestedSheets(f) {
+      const g = String(f.general || "").trim();
+      const t = String(f.technical || "").trim();
+      const b = String(f.business || "").trim();
+      const inner = [];
+      if (g) {
+        inner.push(
+          `<details class="kb-nested" open><summary><span class="kb-src-badge sheet">Лист Excel</span>Общее</summary><div style="margin-top:6px;line-height:1.45;font-size:12px;">${esc(g)}</div></details>`
+        );
+      }
+      if (t) {
+        inner.push(
+          `<details class="kb-nested"><summary><span class="kb-src-badge sheet">Лист Excel</span>Техника</summary><div style="margin-top:6px;line-height:1.45;font-size:12px;">${esc(t)}</div></details>`
+        );
+      }
+      if (b) {
+        inner.push(
+          `<details class="kb-nested"><summary><span class="kb-src-badge sheet">Лист Excel</span>Бизнес</summary><div style="margin-top:6px;line-height:1.45;font-size:12px;">${esc(b)}</div></details>`
+        );
+      }
+      if (!inner.length) {
+        inner.push(`<div class="muted-text" style="margin-top:6px;">В строке листа нет заполненных колонок «Общая / Техническая / Бизнес часть».</div>`);
+      }
+      inner.push(
+        `<details class="kb-nested"><summary><span class="kb-src-badge matrix">Матрица</span>У кого есть</summary><div class="muted-text" style="margin-top:6px;line-height:1.45;font-size:12px;">После подключения БД: «есть / нет / частично», ссылки на первоисточники (документация вендора, отчёты) и сопоставление с вашим портфелем.</div></details>`
+      );
+      return inner.join("");
     }
 
     function renderClassFunctionsHtml(sheetData) {
-      const all = listFromValue(sheetData?.allFunctions);
       const top = listFromValue(sheetData?.topFunctions);
-      const useFull = classDetailExpanded && all.length > 0;
-      const list = useFull ? all : (top.length ? top : all);
+      const all = listFromValue(sheetData?.allFunctions);
+      const list = top.length ? top : all;
       if (!list.length) return '<div class="muted-text">Нет функций в загруженном листе.</div>';
       const parts = [];
       for (const f of list) {
         const typ = String(f.type || "").toLowerCase();
         const pr = f.priority ?? "?";
         const title = esc(f.title || "без названия");
-        if (typ.includes("категор")) {
-          const blob = [f.general, f.technical, f.business].filter(Boolean).join(" ");
-          if (blob) {
-            parts.push(
-              `<details class="fn-cascade" style="margin-top:10px;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;background:#f8fafc;"><summary style="cursor:pointer;font-weight:700;color:#0f172a;">${title} <span class="pill">категория · P${pr}</span></summary><div class="muted-text" style="margin-top:8px;line-height:1.45;">${esc(blob)}</div></details>`
-            );
-          } else {
-            parts.push(`<div style="margin-top:10px;font-weight:700;color:#0f172a;">${title} <span class="pill">P${pr}</span></div>`);
-          }
-          continue;
-        }
+        const isCat = typ.includes("категор");
+        const catClass = isCat ? " fn-category" : "";
+        const pill = isCat ? `<span class="pill">категория · P${pr}</span>` : `<span class="pill">P${pr}</span>`;
         parts.push(
-          `<details class="fn-cascade" style="margin:6px 0 6px 4px;border:1px solid #e2e8f0;border-radius:8px;padding:6px 8px;background:#fafafa;"><summary style="cursor:pointer;font-weight:600;list-style-position:outside;">${title} <span class="pill">P${pr}</span>${useFull ? "" : " · нажмите для полного текста"}</summary>${renderFunctionCascadeBody(f)}</details>`
+          `<details class="kb-cascade${catClass}"><summary>${title} ${pill} <span class="kb-cascade-hint">· раскройте блок</span></summary><div class="kb-source-sheet-wrap" style="margin-top:4px;">${renderFunctionNestedSheets(f)}</div></details>`
         );
       }
       return parts.join("");
+    }
+
+    function renderClassRefBlock(ref) {
+      const d = ref?.data;
+      if (!d) {
+        return `<div class="kb-ref-block muted-text"><span class="kb-src-badge ref">Справочник</span>Для этого класса нет строки в <code>IT_Architecture…Справочник.csv</code> — смотрите лист функций и документ исследования.</div>`;
+      }
+      const rows = [];
+      if (String(d.what || "").trim()) rows.push(`<div style="margin-top:4px;line-height:1.45;"><b>Что это:</b> ${esc(d.what)}</div>`);
+      if (String(d.techGoal || "").trim()) rows.push(`<div style="margin-top:4px;line-height:1.45;"><b>Тех. цель:</b> ${esc(d.techGoal)}</div>`);
+      if (String(d.businessGoal || "").trim()) rows.push(`<div style="margin-top:4px;line-height:1.45;"><b>Бизнес-цель:</b> ${esc(d.businessGoal)}</div>`);
+      if (String(d.howWorks || "").trim()) rows.push(`<div style="margin-top:4px;line-height:1.45;"><b>Как работает:</b> ${esc(d.howWorks)}</div>`);
+      if (!rows.length) {
+        return `<div class="kb-ref-block muted-text"><span class="kb-src-badge ref">Справочник</span>Поля справочника для этой строки пусты — детали в листе функций ниже.</div>`;
+      }
+      return `<div class="kb-ref-block"><span class="kb-src-badge ref">Справочник зон/классов</span>${rows.join("")}</div>`;
+    }
+
+    function classDetailPageUrl(node, sheetMeta) {
+      const label = node.label.replace(/\n/g, " ").trim();
+      const q = new URLSearchParams();
+      q.set("nodeId", node.id);
+      q.set("label", label);
+      if (sheetMeta?.key) q.set("sheetKey", sheetMeta.key);
+      return `class-detail.html?${q.toString()}`;
     }
 
     function renderEntityCard() {
@@ -653,19 +742,16 @@
         const ref = classRefByNode(node);
         const sheet = classSheetByNode(node);
         const fnHtml = renderClassFunctionsHtml(sheet?.data);
-        const toggleLabel = classDetailExpanded ? "Кратко (топ функций)" : "Подробнее (все функции класса)";
+        const detailHref = classDetailPageUrl(node, sheet);
         entityCard.innerHTML = `
           <h4>Класс: ${node.label.split(/\n/).map((l) => esc(l)).join("<br>")}</h4>
-          <div style="margin:8px 0;">
-            <button type="button" class="btn" data-action="toggle-class-detail" style="font-size:12px;padding:4px 10px;">${toggleLabel}</button>
-            ${sheet?.data?.functionCount != null ? `<span class="muted-text" style="margin-left:8px;">в листе: ${sheet.data.functionCount} записей</span>` : ""}
+          <div style="margin:8px 0;display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
+            <a class="btn" href="${esc(detailHref)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-block;">Все функции + зачаток конкурентного анализа →</a>
+            ${sheet?.data?.functionCount != null ? `<span class="muted-text">в листе: ${sheet.data.functionCount} записей · здесь топ по приоритету</span>` : ""}
           </div>
-          <div style="margin-top:6px;"><b>Что это:</b> ${esc(ref?.data?.what || "нет данных")}</div>
-          <div style="margin-top:4px;"><b>Тех. цель:</b> ${esc(ref?.data?.techGoal || "нет данных")}</div>
-          <div style="margin-top:4px;"><b>Бизнес-цель:</b> ${esc(ref?.data?.businessGoal || "нет данных")}</div>
-          <div style="margin-top:4px;"><b>Как работает:</b> ${esc(ref?.data?.howWorks || "нет данных")}</div>
+          ${renderClassRefBlock(ref)}
           <div class="panel-section">
-            <b>${classDetailExpanded ? "Все функции / категории" : "Функции (кратко, по приоритету)"}:</b>
+            <b>Функции и категории (топ по приоритету, лист Excel):</b>
             ${fnHtml}
           </div>
         `;
@@ -678,10 +764,16 @@
         if (!zone) return;
         entityCard.innerHTML = `
           <h4>Зона: ${esc(zone.title)}</h4>
-          <div style="margin-top:6px;"><b>Что это:</b> ${esc(kb?.what || "нет данных")}</div>
-          <div style="margin-top:4px;"><b>Тех. цель:</b> ${esc(kb?.techGoal || "нет данных")}</div>
-          <div style="margin-top:4px;"><b>Бизнес-цель:</b> ${esc(kb?.businessGoal || "нет данных")}</div>
-          <div style="margin-top:4px;"><b>Как работает:</b> ${esc(kb?.howWorks || "нет данных")}</div>
+          ${(() => {
+            if (!kb) return `<div class="kb-ref-block muted-text"><span class="kb-src-badge ref">Справочник</span>Нет блока зоны в KB.</div>`;
+            const r = [];
+            if (String(kb.what || "").trim()) r.push(`<div style="margin-top:4px;line-height:1.45;"><b>Что это:</b> ${esc(kb.what)}</div>`);
+            if (String(kb.techGoal || "").trim()) r.push(`<div style="margin-top:4px;line-height:1.45;"><b>Тех. цель:</b> ${esc(kb.techGoal)}</div>`);
+            if (String(kb.businessGoal || "").trim()) r.push(`<div style="margin-top:4px;line-height:1.45;"><b>Бизнес-цель:</b> ${esc(kb.businessGoal)}</div>`);
+            if (String(kb.howWorks || "").trim()) r.push(`<div style="margin-top:4px;line-height:1.45;"><b>Как работает:</b> ${esc(kb.howWorks)}</div>`);
+            if (!r.length) return `<div class="kb-ref-block muted-text"><span class="kb-src-badge ref">Справочник</span>Поля зоны в файле пусты.</div>`;
+            return `<div class="kb-ref-block"><span class="kb-src-badge ref">Справочник зон</span>${r.join("")}</div>`;
+          })()}
           <div class="panel-section">
             <b>Классы в зоне:</b>
             <div>${state.nodes.filter(n => n.zoneId === zone.id).map(n => `<span class="pill">${esc(n.label.replace(/\n/g, " "))}</span>`).join("") || '<span class="muted-text">нет</span>'}</div>
@@ -706,11 +798,11 @@
         entityCard.innerHTML = `
           <h4>Поток данных: ${from} → ${to}</h4>
           <div class="muted-text">Связь <b>${esc(e.id)}</b> · тип: <b>${esc(e.type)}</b>${e.label ? ` · подпись на схеме: «${esc(e.label)}»` : ""}</div>
-          <div class="panel-section"><b>Смысл потока (по материалам классов)</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.what)}</div></div>
-          <div class="panel-section"><b>Зачем эта связь в архитектуре</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.why)}</div></div>
-          <div class="panel-section"><b>Источник: контекст и функции</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.atSource)}</div></div>
-          <div class="panel-section"><b>Приёмник: контекст и функции</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.atDest)}</div></div>
-          <div class="panel-section"><b>Выдержки из базы (CSV-исследование)</b>${researchBlocks || `<p class="muted-text">${esc(sec.research)}</p>`}</div>
+          <div class="panel-section"><span class="kb-src-badge ref">Классы / справочник</span><b style="display:block;margin-top:6px;">Смысл потока</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.what)}</div></div>
+          <div class="panel-section"><span class="kb-src-badge ref">Классы / справочник</span><b style="display:block;margin-top:6px;">Зачем эта связь</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.why)}</div></div>
+          <div class="panel-section"><span class="kb-src-badge sheet">Лист Excel + справочник</span><b style="display:block;margin-top:6px;">Источник</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.atSource)}</div></div>
+          <div class="panel-section"><span class="kb-src-badge sheet">Лист Excel + справочник</span><b style="display:block;margin-top:6px;">Приёмник</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.atDest)}</div></div>
+          <div class="panel-section kb-edge-corpus"><span class="kb-src-badge" style="background:#ffedd5;color:#9a3412;">Исследование / corpus</span><b style="display:block;margin-top:6px;">Выдержки из базы</b>${researchBlocks || `<p class="muted-text">${esc(sec.research)}</p>`}</div>
         `;
         return;
       }
@@ -1256,7 +1348,6 @@
     }
 
     function selectEdge(edgeId) {
-      classDetailExpanded = false;
       selectedEdgeId = edgeId;
       selectedNodeId = null;
       selectedZoneId = null;
@@ -1266,7 +1357,6 @@
     }
 
     function selectNode(nodeId) {
-      if (selectedNodeId !== nodeId) classDetailExpanded = false;
       selectedNodeId = nodeId;
       selectedEdgeId = null;
       selectedZoneId = null;
@@ -1276,7 +1366,6 @@
     }
 
     function selectZone(zoneId) {
-      classDetailExpanded = false;
       selectedZoneId = zoneId;
       selectedNodeId = null;
       selectedEdgeId = null;
@@ -1419,7 +1508,6 @@
       // workspace click clear
       workspace.onclick = (e) => {
         if (e.target === workspace || e.target === edgesSvg || e.target === viewport) {
-          classDetailExpanded = false;
           selectedEdgeId = null;
           selectedNodeId = null;
           selectedZoneId = null;
@@ -1651,13 +1739,6 @@
     renderVendorStub();
     renderEntityCard();
     sidebarSearchInput.addEventListener("input", (e) => runSearch(e.target.value));
-    document.querySelector(".knowledge-modal-body").addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-action=\"toggle-class-detail\"]");
-      if (btn) {
-        classDetailExpanded = !classDetailExpanded;
-        renderEntityCard();
-      }
-    });
     toggleSidebarBtn.addEventListener("click", () => {
       sidebarCollapsed = !sidebarCollapsed;
       sidebar.classList.toggle("collapsed", sidebarCollapsed);

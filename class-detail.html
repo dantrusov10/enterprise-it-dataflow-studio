@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Класс — материалы и зачаток конкурентного анализа</title>
+  <style>
+    body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: #f1f5f9; color: #0f172a; line-height: 1.45; }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 20px 16px 48px; }
+    a.back { color: #1d4ed8; font-size: 13px; text-decoration: none; }
+    a.back:hover { text-decoration: underline; }
+    h1 { font-size: 1.25rem; margin: 12px 0 8px; }
+    .btn { border: 1px solid #94a3b8; background: #fff; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 13px; text-decoration: none; color: inherit; display: inline-block; }
+    .muted { color: #64748b; font-size: 12px; }
+    .panel { background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px; margin-top: 16px; box-shadow: 0 4px 20px rgba(15,23,42,0.06); }
+    .panel h2 { margin: 0 0 10px; font-size: 14px; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; margin-right: 4px; background: #e2e8f0; color: #0f172a; }
+    table.ca { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+    table.ca th, table.ca td { border: 1px solid #e2e8f0; padding: 8px; text-align: left; }
+    table.ca th { background: #f8fafc; }
+    details.kb-cascade {
+      margin: 8px 0;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 2px 10px 8px;
+      background: #fafafa;
+    }
+    details.kb-cascade > summary {
+      cursor: pointer;
+      font-weight: 600;
+      list-style-position: outside;
+      margin-left: 0.4rem;
+      padding: 6px 0 4px;
+    }
+    details.kb-cascade.fn-category { background: #f1f5f9; border-color: #cbd5e1; }
+    details.kb-cascade > summary .kb-cascade-hint { font-weight: 400; color: #64748b; font-size: 11px; }
+    details.kb-nested {
+      margin: 6px 0 0;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 2px 8px 6px;
+      background: #fff;
+    }
+    details.kb-nested > summary {
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 12px;
+      list-style-position: outside;
+      margin-left: 0.35rem;
+      padding: 4px 0;
+    }
+    .kb-src-badge {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      padding: 1px 6px;
+      border-radius: 4px;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .kb-src-badge.ref { background: #dbeafe; color: #1d4ed8; }
+    .kb-src-badge.sheet { background: #d1fae5; color: #047857; }
+    .kb-src-badge.matrix { background: #ede9fe; color: #6d28d9; }
+    .kb-ref-block {
+      border-left: 3px solid #2563eb;
+      padding: 6px 4px 6px 12px;
+      margin: 10px 0;
+      background: linear-gradient(90deg, rgba(37,99,235,0.06), transparent);
+      border-radius: 0 8px 8px 0;
+    }
+  </style>
+  <script src="./enterprise-it-dataflow-knowledge.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="./index.html">← К схеме</a>
+    <h1 id="pageTitle">Класс</h1>
+    <p class="muted" id="pageMeta"></p>
+    <div id="refBlock"></div>
+    <div class="panel">
+      <h2>Все функции и категории (лист Excel)</h2>
+      <div id="functionsBlock"></div>
+    </div>
+    <div class="panel">
+      <h2>Зачаток конкурентного анализа</h2>
+      <p class="muted">Черновик: заполните по мере подключения матрицы вендоров. Пока — структура таблицы и напоминание, что сравнение идёт по функциям из листа класса.</p>
+      <table class="ca">
+        <thead>
+          <tr>
+            <th>Функция / критерий</th>
+            <th>Наш статус</th>
+            <th>Вендор A</th>
+            <th>Вендор B</th>
+            <th>Комментарий / ссылка</th>
+          </tr>
+        </thead>
+        <tbody id="caTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+  <script>
+    const KB = window.ENTERPRISE_KB || { zones: {}, classReference: {}, classSheets: {} };
+
+    function esc(s) {
+      return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+    }
+
+    function nrm(value) {
+      return String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+    }
+
+    function listFromValue(v) {
+      if (!v) return [];
+      if (Array.isArray(v)) return v;
+      return [v];
+    }
+
+    function zoneKbById(zoneId) {
+      if (!zoneId) return null;
+      return KB.zones?.[zoneId] || null;
+    }
+
+    function classRefFromParams(nodeId, label) {
+      if (nodeId === "n-d1") {
+        const z = zoneKbById("z-disc");
+        if (z) {
+          return {
+            key: "Discovery / Inventory",
+            data: { what: z.what, techGoal: z.techGoal, businessGoal: z.businessGoal, howWorks: z.howWorks }
+          };
+        }
+      }
+      const candidates = [label, ...String(label).split("/").map((s) => s.trim()), String(label).replace(/\n/g, " ").trim()].filter(Boolean);
+      const ref = KB.classReference || {};
+      for (const key of Object.keys(ref)) {
+        const nk = nrm(key);
+        for (const c of candidates) {
+          const nc = nrm(c);
+          if (!nc) continue;
+          if (nk === nc || nk.includes(nc) || nc.includes(nk)) return { key, data: ref[key] };
+        }
+      }
+      return null;
+    }
+
+    function classSheetFromParams(nodeId, label, sheetKeyHint) {
+      const sheets = KB.classSheets || {};
+      if (sheetKeyHint && sheets[sheetKeyHint]) return { key: sheetKeyHint, data: sheets[sheetKeyHint] };
+      const flat = nrm(String(label).replace(/\n/g, " "));
+      const isDiscoveryInventoryLayer =
+        nodeId === "n-d1" ||
+        (flat.includes("discovery") && flat.includes("inventory") && !flat.includes("cloud"));
+      if (isDiscoveryInventoryLayer && sheets["дискаверинг"]) {
+        return { key: "дискаверинг", data: sheets["дискаверинг"] };
+      }
+      const candidates = [label, ...String(label).split("/").map((s) => s.trim()), String(label).replace(/\n/g, " ").trim()].filter(Boolean);
+      for (const key of Object.keys(sheets)) {
+        const nk = nrm(key);
+        for (const c of candidates) {
+          const nc = nrm(c);
+          if (nk === nc || nk.includes(nc) || nc.includes(nk)) return { key, data: sheets[key] };
+        }
+      }
+      return null;
+    }
+
+    function renderClassRefBlock(ref) {
+      const d = ref?.data;
+      if (!d) {
+        return `<div class="kb-ref-block muted"><span class="kb-src-badge ref">Справочник</span>Нет строки класса в справочнике.</div>`;
+      }
+      const rows = [];
+      if (String(d.what || "").trim()) rows.push(`<div style="margin-top:4px;"><b>Что это:</b> ${esc(d.what)}</div>`);
+      if (String(d.techGoal || "").trim()) rows.push(`<div style="margin-top:4px;"><b>Тех. цель:</b> ${esc(d.techGoal)}</div>`);
+      if (String(d.businessGoal || "").trim()) rows.push(`<div style="margin-top:4px;"><b>Бизнес-цель:</b> ${esc(d.businessGoal)}</div>`);
+      if (String(d.howWorks || "").trim()) rows.push(`<div style="margin-top:4px;"><b>Как работает:</b> ${esc(d.howWorks)}</div>`);
+      if (!rows.length) {
+        return `<div class="kb-ref-block muted"><span class="kb-src-badge ref">Справочник</span>Поля пусты.</div>`;
+      }
+      return `<div class="kb-ref-block"><span class="kb-src-badge ref">Справочник зон/классов</span>${rows.join("")}</div>`;
+    }
+
+    function renderFunctionNestedSheets(f) {
+      const g = String(f.general || "").trim();
+      const t = String(f.technical || "").trim();
+      const b = String(f.business || "").trim();
+      const inner = [];
+      if (g) {
+        inner.push(
+          `<details class="kb-nested" open><summary><span class="kb-src-badge sheet">Лист Excel</span>Общее</summary><div style="margin-top:6px;font-size:12px;">${esc(g)}</div></details>`
+        );
+      }
+      if (t) {
+        inner.push(
+          `<details class="kb-nested"><summary><span class="kb-src-badge sheet">Лист Excel</span>Техника</summary><div style="margin-top:6px;font-size:12px;">${esc(t)}</div></details>`
+        );
+      }
+      if (b) {
+        inner.push(
+          `<details class="kb-nested"><summary><span class="kb-src-badge sheet">Лист Excel</span>Бизнес</summary><div style="margin-top:6px;font-size:12px;">${esc(b)}</div></details>`
+        );
+      }
+      if (!inner.length) {
+        inner.push(`<div class="muted" style="margin-top:6px;">Нет текста в колонках листа.</div>`);
+      }
+      inner.push(
+        `<details class="kb-nested"><summary><span class="kb-src-badge matrix">Матрица</span>У кого есть</summary><div class="muted" style="margin-top:6px;">Заполнится из БД: вендоры, ссылки, зрелость.</div></details>`
+      );
+      return inner.join("");
+    }
+
+    function renderAllFunctionsHtml(sheetData) {
+      const all = listFromValue(sheetData?.allFunctions);
+      const top = listFromValue(sheetData?.topFunctions);
+      const list = all.length ? all : top;
+      if (!list.length) return '<p class="muted">Нет данных листа.</p>';
+      const parts = [];
+      for (const f of list) {
+        const typ = String(f.type || "").toLowerCase();
+        const pr = f.priority ?? "?";
+        const title = esc(f.title || "без названия");
+        const isCat = typ.includes("категор");
+        const catClass = isCat ? " fn-category" : "";
+        const pill = isCat ? `<span class="pill">категория · P${pr}</span>` : `<span class="pill">P${pr}</span>`;
+        parts.push(
+          `<details class="kb-cascade${catClass}"><summary>${title} ${pill} <span class="kb-cascade-hint">· раскройте блок</span></summary><div style="margin-top:4px;">${renderFunctionNestedSheets(f)}</div></details>`
+        );
+      }
+      return parts.join("");
+    }
+
+    const params = new URLSearchParams(location.search);
+    const nodeId = params.get("nodeId") || "";
+    const label = params.get("label") || "Класс";
+    const sheetKey = params.get("sheetKey") || "";
+
+    document.getElementById("pageTitle").textContent = label.replace(/\n/g, " ");
+    document.getElementById("pageMeta").textContent = nodeId
+      ? `ID на схеме: ${nodeId}${sheetKey ? ` · лист KB: ${sheetKey}` : ""}`
+      : "Откройте страницу по ссылке «Все функции…» из модалки базы знаний.";
+
+    const ref = classRefFromParams(nodeId, label);
+    const sheet = classSheetFromParams(nodeId, label, sheetKey);
+
+    document.getElementById("refBlock").innerHTML = renderClassRefBlock(ref);
+    document.getElementById("functionsBlock").innerHTML = renderAllFunctionsHtml(sheet?.data);
+
+    const tbody = document.getElementById("caTableBody");
+    const funcRows = listFromValue(sheet?.data?.allFunctions?.length ? sheet.data.allFunctions : sheet?.data?.topFunctions).filter(
+      (f) => !String(f.type || "").toLowerCase().includes("категор")
+    );
+    const sample = funcRows.slice(0, 25);
+    if (!sample.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="muted">Нет строк функций для таблицы.</td></tr>`;
+    } else {
+      tbody.innerHTML = sample
+        .map(
+          (f) =>
+            `<tr><td>${esc(f.title)}</td><td>—</td><td>—</td><td>—</td><td class="muted">Добавьте ссылки на документацию</td></tr>`
+        )
+        .join("");
+    }
+  </script>
+</body>
+</html>
