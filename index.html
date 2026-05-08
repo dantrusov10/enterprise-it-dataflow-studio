@@ -1,0 +1,1190 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Enterprise Dataflow Editor v4</title>
+  <style>
+    body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: #f1f5f9; color: #0f172a; }
+    .app { height: 100vh; display: grid; grid-template-rows: auto 1fr; }
+    .topbar {
+      display: flex; gap: 8px; align-items: center; padding: 10px 12px;
+      background: #fff; border-bottom: 1px solid #cbd5e1;
+    }
+    .btn { border: 1px solid #94a3b8; background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 13px; }
+    .btn:hover { background: #f8fafc; }
+    .btn.active { background: #0f172a; color: #fff; border-color: #0f172a; }
+    .badge { margin-left: auto; font-size: 12px; color: #334155; background: #dbeafe; border: 1px solid #93c5fd; padding: 3px 8px; border-radius: 999px; }
+    .workspace-wrap { position: relative; overflow: hidden; }
+    #workspace {
+      position: relative; width: 2600px; height: 1600px; margin: 0; background: #f8fafc;
+      background-image:
+        linear-gradient(to right, rgba(15,23,42,0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(15,23,42,0.04) 1px, transparent 1px);
+      background-size: 24px 24px;
+      transform-origin: top left;
+    }
+    #viewport { position: absolute; inset: 0; overflow: auto; }
+    #edges { position: absolute; inset: 0; pointer-events: all; overflow: visible; z-index: 5; }
+    .zone {
+      position: absolute; border: 2px solid; border-radius: 12px; background: rgba(255,255,255,0.5);
+      box-sizing: border-box; z-index: 10;
+    }
+    .zone-resize {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      right: 4px;
+      bottom: 4px;
+      border-radius: 2px;
+      background: rgba(15,23,42,0.75);
+      border: 1px solid #fff;
+      cursor: nwse-resize;
+      pointer-events: all;
+    }
+    .zone-header {
+      position: absolute; top: 6px; left: 10px; right: 10px; font-size: 12px; font-weight: 700; text-align: center;
+      pointer-events: none;
+    }
+    .node {
+      position: absolute; min-width: 110px; padding: 5px 8px; font-size: 12px; text-align: center;
+      border: 1.5px solid #64748b; border-radius: 0; background: #fff; cursor: pointer; user-select: none;
+      box-sizing: border-box; z-index: 20;
+    }
+    .node.hub {
+      width: 120px; height: 120px; border-radius: 999px; border: 3px solid #0f172a; background: #0f172a; color: #fff;
+      display: flex; align-items: center; justify-content: center; font-weight: 700; line-height: 1.2;
+    }
+    .selected { box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35); }
+    .muted { opacity: 0.18; filter: grayscale(35%); }
+    .edge-path { fill: none; stroke-width: 2.2; pointer-events: stroke; cursor: pointer; }
+    .edge-hit { fill: none; stroke: transparent; stroke-width: 16; pointer-events: stroke; cursor: pointer; }
+    .edge-label { font-size: 11px; fill: #7e22ce; user-select: none; pointer-events: none; }
+    .edge-direct { stroke: #111827; }
+    .edge-alt { stroke: #475569; stroke-dasharray: 4 4; }
+    .edge-zone { stroke: #16a34a; }
+    .edge-active { stroke: #0f172a !important; stroke-width: 3.2 !important; }
+    .control-point { fill: #2563eb; stroke: #fff; stroke-width: 1.5; cursor: move; pointer-events: all; }
+    .panel {
+      position: absolute; right: 12px; top: 56px; width: 280px; max-height: calc(100% - 68px);
+      overflow: auto; background: rgba(255,255,255,0.95); border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px;
+      font-size: 12px;
+    }
+    .panel h4 { margin: 0 0 8px 0; font-size: 13px; }
+    .hint { color: #475569; margin-top: 8px; line-height: 1.35; }
+    .search-input { width: 100%; box-sizing: border-box; border: 1px solid #94a3b8; border-radius: 8px; padding: 6px 8px; font-size: 12px; }
+    .panel-section { margin-top: 10px; border-top: 1px solid #e2e8f0; padding-top: 8px; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; margin-right: 4px; margin-bottom: 4px; background: #e2e8f0; color: #0f172a; }
+    .result-item { border: 1px solid #cbd5e1; border-radius: 8px; padding: 6px; margin: 6px 0; cursor: pointer; background: #fff; }
+    .result-item:hover { background: #f8fafc; }
+    .muted-text { color: #64748b; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <button class="btn" id="editToggle">Редактировать: выкл</button>
+      <button class="btn" id="addZoneBtn">+ Зона</button>
+      <button class="btn" id="addClassBtn">+ Класс</button>
+      <button class="btn" id="addEdgeBtn">+ Связь</button>
+      <button class="btn" id="fitBtn">Подогнать в окно</button>
+      <button class="btn" id="resetBtn">Сброс вида</button>
+      <button class="btn" id="layoutBtn">Авто-раскладка</button>
+      <button class="btn" id="untangleBtn">Упростить связи</button>
+      <button class="btn" id="minCrossBtn">Минимум пересечений</button>
+      <button class="btn" id="exportBtn">Экспорт JSON</button>
+      <span class="badge">v4.8 knowledge-cards-search</span>
+    </div>
+    <div class="workspace-wrap">
+      <div id="viewport">
+        <div id="workspace">
+          <svg id="edges"></svg>
+        </div>
+      </div>
+      <div class="panel" id="infoPanel">
+        <h4>Knowledge Layer</h4>
+        <input id="searchInput" class="search-input" placeholder="Поиск: функция, задача, результат, класс..." />
+        <div class="hint">Поддерживается лексический поиск + базовые синонимы.</div>
+        <div id="searchResults" class="panel-section"></div>
+        <div id="entityCard" class="panel-section"></div>
+        <div id="vendorCard" class="panel-section"></div>
+      </div>
+    </div>
+  </div>
+  <script src="./enterprise-it-dataflow-knowledge.js"></script>
+  <script>
+    const viewport = document.getElementById("viewport");
+    const workspace = document.getElementById("workspace");
+    const edgesSvg = document.getElementById("edges");
+    const editToggle = document.getElementById("editToggle");
+    const addZoneBtn = document.getElementById("addZoneBtn");
+    const addClassBtn = document.getElementById("addClassBtn");
+    const addEdgeBtn = document.getElementById("addEdgeBtn");
+    const fitBtn = document.getElementById("fitBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const layoutBtn = document.getElementById("layoutBtn");
+    const untangleBtn = document.getElementById("untangleBtn");
+    const minCrossBtn = document.getElementById("minCrossBtn");
+    const exportBtn = document.getElementById("exportBtn");
+    const infoPanel = document.getElementById("infoPanel");
+    const searchInput = document.getElementById("searchInput");
+    const searchResults = document.getElementById("searchResults");
+    const entityCard = document.getElementById("entityCard");
+    const vendorCard = document.getElementById("vendorCard");
+
+    let editMode = false;
+    let scale = 1;
+    let selectedEdgeId = null;
+    let selectedNodeId = null;
+    let selectedZoneId = null;
+    let createEdgeMode = false;
+    let edgeFrom = null;
+    const KB = window.ENTERPRISE_KB || { zones: {}, classReference: {}, classSheets: {} };
+    const SEARCH_SYNONYMS = {
+      "стоимость": ["finops", "финансы", "затраты", "tco", "бюджет"],
+      "лицензии": ["sam", "license", "entitlement", "право использования"],
+      "инцидент": ["incident", "service desk", "itsm", "тикет"],
+      "дискавери": ["discovery", "инвентаризация", "inventory", "сканирование"],
+      "безопасность": ["siem", "edr", "vulnerability", "grc", "pam", "dlp"],
+      "изменения": ["change", "release", "deployment", "patch", "configuration"],
+      "актив": ["asset", "itam", "cmdb", "ci", "оборудование", "по"],
+      "доступ": ["iam", "iga", "pam", "идентичность", "роль"]
+    };
+
+    function nrm(value) {
+      return String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+    }
+
+    function listFromValue(v) {
+      if (!v) return [];
+      if (Array.isArray(v)) return v;
+      return [v];
+    }
+
+    function zoneKbById(zoneId) {
+      if (!zoneId) return null;
+      return KB.zones?.[zoneId] || null;
+    }
+
+    function classRefByNode(node) {
+      if (!node) return null;
+      const candidates = [node.label];
+      const slashParts = node.label.split("/").map(s => s.trim()).filter(Boolean);
+      candidates.push(...slashParts);
+      candidates.push(node.label.replace(/\n/g, " ").trim());
+      const ref = KB.classReference || {};
+      for (const key of Object.keys(ref)) {
+        const nk = nrm(key);
+        for (const c of candidates) {
+          const nc = nrm(c);
+          if (!nc) continue;
+          if (nk === nc || nk.includes(nc) || nc.includes(nk)) return { key, data: ref[key] };
+        }
+      }
+      return null;
+    }
+
+    function classSheetByNode(node) {
+      if (!node) return null;
+      const candidates = [
+        node.label,
+        ...node.label.split("/").map(s => s.trim()),
+        node.label.replace(/\n/g, " ").trim()
+      ].filter(Boolean);
+      const sheets = KB.classSheets || {};
+      for (const key of Object.keys(sheets)) {
+        const nk = nrm(key);
+        for (const c of candidates) {
+          const nc = nrm(c);
+          if (nk === nc || nk.includes(nc) || nc.includes(nk)) return { key, data: sheets[key] };
+        }
+      }
+      return null;
+    }
+
+    function renderVendorStub() {
+      vendorCard.innerHTML = `
+        <h4>Vendor Layer (каркас)</h4>
+        <div class="muted-text">Следующий этап: матрица вендоров по функциям (Да/Нет/Частично/Неизвестно) + proof links.</div>
+        <div style="margin-top:6px;">
+          <span class="pill">vendor matrix</span>
+          <span class="pill">proof links</span>
+          <span class="pill">confidence score</span>
+        </div>
+      `;
+    }
+
+    function renderEntityCard() {
+      if (selectedNodeId) {
+        const node = nodeById(selectedNodeId);
+        if (!node) return;
+        const ref = classRefByNode(node);
+        const sheet = classSheetByNode(node);
+        const top = listFromValue(sheet?.data?.topFunctions);
+        entityCard.innerHTML = `
+          <h4>Класс: ${node.label.replace(/\n/g, "<br>")}</h4>
+          <div class="muted-text">Каскад: кратко -> функции (top).</div>
+          <div style="margin-top:6px;"><b>Что это:</b> ${ref?.data?.what || "нет данных"}</div>
+          <div style="margin-top:4px;"><b>Тех. цель:</b> ${ref?.data?.techGoal || "нет данных"}</div>
+          <div style="margin-top:4px;"><b>Бизнес-цель:</b> ${ref?.data?.businessGoal || "нет данных"}</div>
+          <div style="margin-top:4px;"><b>Как работает:</b> ${ref?.data?.howWorks || "нет данных"}</div>
+          <div class="panel-section">
+            <b>Функции (top, приоритет):</b>
+            ${top.length ? top.map(f => `<div class="result-item"><div><b>${f.title || "без названия"}</b> <span class="pill">P${f.priority || "?"}</span></div><div class="muted-text">${f.business || f.general || ""}</div></div>`).join("") : '<div class="muted-text">Нет функций в загруженном листе.</div>'}
+          </div>
+        `;
+        return;
+      }
+
+      if (selectedZoneId) {
+        const zone = zoneById(selectedZoneId);
+        const kb = zoneKbById(selectedZoneId);
+        if (!zone) return;
+        entityCard.innerHTML = `
+          <h4>Зона: ${zone.title}</h4>
+          <div style="margin-top:6px;"><b>Что это:</b> ${kb?.what || "нет данных"}</div>
+          <div style="margin-top:4px;"><b>Тех. цель:</b> ${kb?.techGoal || "нет данных"}</div>
+          <div style="margin-top:4px;"><b>Бизнес-цель:</b> ${kb?.businessGoal || "нет данных"}</div>
+          <div style="margin-top:4px;"><b>Как работает:</b> ${kb?.howWorks || "нет данных"}</div>
+          <div class="panel-section">
+            <b>Классы в зоне:</b>
+            <div>${state.nodes.filter(n => n.zoneId === zone.id).map(n => `<span class="pill">${n.label.replace(/\n/g, " ")}</span>`).join("") || '<span class="muted-text">нет</span>'}</div>
+          </div>
+        `;
+        return;
+      }
+
+      if (selectedEdgeId) {
+        const e = edgeById(selectedEdgeId);
+        if (!e) return;
+        const from = e.from.startsWith("z-") ? zoneById(e.from)?.title : nodeById(e.from)?.label;
+        const to = e.to.startsWith("z-") ? zoneById(e.to)?.title : nodeById(e.to)?.label;
+        entityCard.innerHTML = `
+          <h4>Связь: ${e.id}</h4>
+          <div><b>Откуда:</b> ${from || e.from}</div>
+          <div><b>Куда:</b> ${to || e.to}</div>
+          <div><b>Тип:</b> ${e.type}</div>
+          <div><b>Комментарий:</b> ${e.label || "—"}</div>
+        `;
+        return;
+      }
+
+      entityCard.innerHTML = `
+        <h4>Подсказка</h4>
+        <div>Кликните на зону, класс или стрелку — справа откроется карточка с контекстом.</div>
+        <div class="hint">В режиме редактирования можно двигать зоны/классы и менять кривизну стрелки.</div>
+      `;
+    }
+
+    function searchIndexItems() {
+      const items = [];
+      state.zones.forEach((z) => {
+        const kb = zoneKbById(z.id) || {};
+        items.push({
+          kind: "zone",
+          id: z.id,
+          title: z.title,
+          body: `${kb.what || ""} ${kb.techGoal || ""} ${kb.businessGoal || ""} ${kb.howWorks || ""}`
+        });
+      });
+      state.nodes.forEach((n) => {
+        const ref = classRefByNode(n)?.data || {};
+        const sheet = classSheetByNode(n)?.data || {};
+        const functionsText = listFromValue(sheet.topFunctions).map(f => `${f.title || ""} ${f.general || ""} ${f.business || ""}`).join(" ");
+        items.push({
+          kind: "node",
+          id: n.id,
+          title: n.label.replace(/\n/g, " "),
+          body: `${ref.what || ""} ${ref.techGoal || ""} ${ref.businessGoal || ""} ${ref.howWorks || ""} ${functionsText}`
+        });
+      });
+      return items;
+    }
+
+    function runSearch(query) {
+      const q = nrm(query);
+      if (!q) {
+        searchResults.innerHTML = "";
+        return;
+      }
+      const expanded = [q];
+      Object.entries(SEARCH_SYNONYMS).forEach(([k, arr]) => {
+        if (q.includes(nrm(k)) || arr.some(a => q.includes(nrm(a)))) {
+          expanded.push(nrm(k), ...arr.map(nrm));
+        }
+      });
+      const tokens = Array.from(new Set(expanded.join(" ").split(/\s+/).filter(Boolean)));
+      const results = searchIndexItems().map(item => {
+        const hay = `${nrm(item.title)} ${nrm(item.body)}`;
+        let score = 0;
+        tokens.forEach(t => { if (hay.includes(t)) score += (item.title.toLowerCase().includes(t) ? 4 : 1); });
+        return { ...item, score };
+      }).filter(r => r.score > 0).sort((a, b) => b.score - a.score).slice(0, 10);
+
+      if (!results.length) {
+        searchResults.innerHTML = `<div class="muted-text">Ничего не найдено. Уточните запрос или используйте синоним.</div>`;
+        return;
+      }
+      searchResults.innerHTML = `
+        <h4>Результаты поиска</h4>
+        ${results.map(r => `<div class="result-item" data-result-kind="${r.kind}" data-result-id="${r.id}"><b>${r.title}</b><div class="muted-text">${r.kind === "zone" ? "зона" : "класс"} · score ${r.score}</div></div>`).join("")}
+      `;
+      Array.from(searchResults.querySelectorAll(".result-item")).forEach(el => {
+        el.addEventListener("click", () => {
+          const kind = el.dataset.resultKind;
+          const id = el.dataset.resultId;
+          if (kind === "zone") selectZone(id);
+          if (kind === "node") selectNode(id);
+        });
+      });
+    }
+
+    const state = {
+      zones: [
+        { id: "z-src", title: "Источники первичных данных", x: 120, y: 40, w: 520, h: 170, color: "#3b82f6" },
+        { id: "z-disc", title: "Discovery / Inventory слой", x: 700, y: 40, w: 560, h: 190, color: "#65a30d" },
+        { id: "z-norm", title: "Нормализация / идентификация / обогащение", x: 1280, y: 270, w: 600, h: 250, color: "#0284c7" },
+        { id: "z-itsm", title: "ITSM / Service Management", x: 720, y: 600, w: 700, h: 360, color: "#ca8a04" },
+        { id: "z-fin", title: "ITAM / SAM / Finance", x: 1500, y: 620, w: 560, h: 300, color: "#ea580c" },
+        { id: "z-sec", title: "Security / Risk / Compliance", x: 120, y: 1030, w: 740, h: 300, color: "#dc2626" },
+        { id: "z-ops", title: "Monitoring / Operations", x: 930, y: 1020, w: 610, h: 300, color: "#0891b2" },
+        { id: "z-cld", title: "Cloud / Hybrid", x: 1860, y: 260, w: 480, h: 200, color: "#7c3aed" },
+        { id: "z-bi", title: "BI / Governance", x: 1970, y: 1020, w: 480, h: 230, color: "#16a34a" }
+      ],
+      nodes: [
+        { id: "n-hub", label: "CMDB / Asset Data Hub\nGolden Record", x: 1040, y: 400, zoneId: null, hub: true },
+
+        { id: "n-src1", label: "Endpoints / Servers", x: 150, y: 90, zoneId: "z-src" },
+        { id: "n-src2", label: "HRM / HRIS", x: 330, y: 90, zoneId: "z-src" },
+        { id: "n-src3", label: "ERP / Procurement", x: 500, y: 90, zoneId: "z-src" },
+        { id: "n-src4", label: "IAM / IGA / PAM", x: 320, y: 145, zoneId: "z-src" },
+
+        { id: "n-d1", label: "Discovery", x: 760, y: 95, zoneId: "z-disc" },
+        { id: "n-d2", label: "Inventory", x: 930, y: 95, zoneId: "z-disc" },
+        { id: "n-d3", label: "Cloud Inventory", x: 1110, y: 95, zoneId: "z-disc" },
+        { id: "n-d4", label: "UEM / MDM", x: 760, y: 155, zoneId: "z-disc" },
+        { id: "n-d5", label: "NAC", x: 900, y: 155, zoneId: "z-disc" },
+        { id: "n-d6", label: "IPAM / DNS / DHCP", x: 1005, y: 155, zoneId: "z-disc" },
+        { id: "n-d7", label: "Network Mgmt / NMS", x: 1145, y: 155, zoneId: "z-disc" },
+
+        { id: "n-n1", label: "Normalization Engine", x: 1370, y: 320, zoneId: "z-norm" },
+        { id: "n-n2", label: "Reconciliation / De-dup", x: 1540, y: 450, zoneId: "z-norm" },
+        { id: "n-n3", label: "Software Recognition", x: 1320, y: 450, zoneId: "z-norm" },
+        { id: "n-n4", label: "Ownership Enrichment", x: 1700, y: 450, zoneId: "z-norm" },
+
+        { id: "n-t1", label: "ITSM Core", x: 1030, y: 700, zoneId: "z-itsm" },
+        { id: "n-t2", label: "Service Desk", x: 1240, y: 690, zoneId: "z-itsm" },
+        { id: "n-t3", label: "Incident Mgmt", x: 800, y: 860, zoneId: "z-itsm" },
+        { id: "n-t4", label: "Change Mgmt", x: 980, y: 860, zoneId: "z-itsm" },
+        { id: "n-t5", label: "Problem Mgmt", x: 1160, y: 860, zoneId: "z-itsm" },
+        { id: "n-t6", label: "Service Catalog", x: 1340, y: 860, zoneId: "z-itsm" },
+        { id: "n-t7", label: "Knowledge Base", x: 1230, y: 790, zoneId: "z-itsm" },
+        { id: "n-t8", label: "Release Mgmt", x: 1410, y: 790, zoneId: "z-itsm" },
+        { id: "n-t9", label: "BPM / Workflow", x: 1420, y: 860, zoneId: "z-itsm" },
+
+        { id: "n-f1", label: "ITAM", x: 1590, y: 700, zoneId: "z-fin" },
+        { id: "n-f2", label: "SAM", x: 1730, y: 700, zoneId: "z-fin" },
+        { id: "n-f3", label: "FinOps", x: 1900, y: 700, zoneId: "z-fin" },
+        { id: "n-f4", label: "License Mgmt", x: 1700, y: 800, zoneId: "z-fin" },
+        { id: "n-f5", label: "Asset Lifecycle", x: 1540, y: 800, zoneId: "z-fin" },
+        { id: "n-f6", label: "ERP Sync", x: 1870, y: 800, zoneId: "z-fin" },
+
+        { id: "n-s1", label: "SIEM", x: 240, y: 1110, zoneId: "z-sec" },
+        { id: "n-s2", label: "Vulnerability Mgmt", x: 430, y: 1110, zoneId: "z-sec" },
+        { id: "n-s6", label: "PAM", x: 630, y: 1110, zoneId: "z-sec" },
+        { id: "n-s3", label: "EDR", x: 240, y: 1210, zoneId: "z-sec" },
+        { id: "n-s4", label: "DLP", x: 430, y: 1210, zoneId: "z-sec" },
+        { id: "n-s5", label: "GRC", x: 630, y: 1210, zoneId: "z-sec" },
+
+        { id: "n-o1", label: "Monitoring / Event", x: 1020, y: 1110, zoneId: "z-ops" },
+        { id: "n-o2", label: "APM / Observability", x: 1230, y: 1110, zoneId: "z-ops" },
+        { id: "n-o3", label: "Deployment / SW Dist", x: 980, y: 1210, zoneId: "z-ops" },
+        { id: "n-o4", label: "Patch Management", x: 1180, y: 1210, zoneId: "z-ops" },
+        { id: "n-o5", label: "Configuration Mgmt", x: 1360, y: 1210, zoneId: "z-ops" },
+
+        { id: "n-c1", label: "CMP", x: 1920, y: 320, zoneId: "z-cld" },
+        { id: "n-c2", label: "Cloud Governance", x: 2090, y: 320, zoneId: "z-cld" },
+
+        { id: "n-b1", label: "BI / DWH", x: 2060, y: 1080, zoneId: "z-bi" },
+        { id: "n-b2", label: "Executive Dashboards", x: 2220, y: 1080, zoneId: "z-bi" }
+      ],
+      edges: [
+        { id: "e1", from: "n-src1", to: "n-d1", label: "CI атрибуты", type: "direct", c: {x: 470, y: 120} },
+        { id: "e2", from: "n-d1", to: "n-n1", label: "сырые CI", type: "direct", c: {x: 1090, y: 230} },
+        { id: "e3", from: "n-d2", to: "n-n1", label: "HW/SW inventory", type: "direct", c: {x: 1230, y: 220} },
+        { id: "e4", from: "n-d3", to: "n-n1", label: "cloud assets", type: "direct", c: {x: 1290, y: 210} },
+        { id: "e5", from: "n-n1", to: "n-n2", label: "", type: "direct", c: {x: 1500, y: 380} },
+        { id: "e6", from: "n-n3", to: "n-n2", label: "", type: "direct", c: {x: 1435, y: 470} },
+        { id: "e7", from: "n-n4", to: "n-n2", label: "", type: "direct", c: {x: 1630, y: 470} },
+        { id: "e8", from: "n-n2", to: "n-hub", label: "нормализованные и обогащенные CI", type: "direct", c: {x: 1320, y: 500} },
+        { id: "e9", from: "n-hub", to: "n-t1", label: "service map", type: "direct", c: {x: 1060, y: 580} },
+        { id: "e10", from: "n-o1", to: "n-t3", label: "alerts", type: "direct", c: {x: 900, y: 940} },
+        { id: "e11", from: "n-o2", to: "n-t1", label: "trace/latency", type: "direct", c: {x: 1180, y: 910} },
+        { id: "e12", from: "n-hub", to: "n-f1", label: "asset graph", type: "direct", c: {x: 1320, y: 600} },
+        { id: "e13", from: "n-f1", to: "n-t1", label: "asset context", type: "direct", c: {x: 1310, y: 740} },
+        { id: "e14", from: "n-s6", to: "n-s1", label: "privileged sessions", type: "direct", c: {x: 470, y: 1060} },
+        { id: "e15", from: "n-c1", to: "n-d3", label: "cloud config", type: "direct", c: {x: 1620, y: 250} },
+        { id: "e19", from: "n-t1", to: "n-t4", label: "", type: "direct", c: {x: 1030, y: 800} },
+        { id: "e20", from: "n-t1", to: "n-t5", label: "", type: "direct", c: {x: 1120, y: 800} },
+        { id: "e21", from: "n-t6", to: "n-t1", label: "", type: "direct", c: {x: 1300, y: 760} },
+        { id: "e22", from: "n-f2", to: "n-f4", label: "", type: "direct", c: {x: 1730, y: 760} },
+        { id: "e23", from: "n-f1", to: "n-f5", label: "", type: "direct", c: {x: 1580, y: 760} },
+        { id: "e24", from: "n-s3", to: "n-s1", label: "", type: "direct", c: {x: 230, y: 1165} },
+        { id: "e25", from: "n-s4", to: "n-s5", label: "", type: "direct", c: {x: 520, y: 1210} },
+        { id: "e28", from: "n-src1", to: "n-d2", label: "инвентарные признаки", type: "direct", c: {x: 560, y: 135} },
+        { id: "e29", from: "n-n2", to: "n-t1", label: "quality CI feed", type: "direct", c: {x: 1370, y: 610} },
+        { id: "e30", from: "n-t1", to: "n-t8", label: "", type: "direct", c: {x: 1260, y: 760} },
+        { id: "e31", from: "n-t8", to: "n-t2", label: "", type: "direct", c: {x: 1330, y: 730} },
+        { id: "e32", from: "n-t9", to: "n-t1", label: "", type: "direct", c: {x: 1330, y: 845} },
+        { id: "e33", from: "n-hub", to: "n-s2", label: "asset identity", type: "direct", c: {x: 680, y: 790} },
+        { id: "e34", from: "n-s3", to: "n-s1", label: "endpoint incidents", type: "direct", c: {x: 290, y: 1160} },
+        { id: "e35", from: "n-s1", to: "n-s5", label: "risk context", type: "direct", c: {x: 430, y: 1140} },
+        { id: "e36", from: "n-src4", to: "n-s6", label: "privileged identities", type: "direct", c: {x: 520, y: 660} },
+        { id: "e37", from: "n-s6", to: "n-s1", label: "privileged session context", type: "direct", c: {x: 460, y: 1080} },
+        { id: "e38", from: "n-s6", to: "n-s5", label: "control evidence", type: "direct", c: {x: 640, y: 1160} },
+        { id: "e39", from: "n-f1", to: "n-f6", label: "стоимость/актив", type: "direct", c: {x: 1750, y: 740} },
+        { id: "e40", from: "n-f2", to: "n-f6", label: "entitlement/use", type: "direct", c: {x: 1810, y: 740} },
+        { id: "e41", from: "n-c1", to: "n-f3", label: "cost usage", type: "direct", c: {x: 1980, y: 520} },
+        { id: "e42", from: "n-hub", to: "n-b1", label: "KPI datasets", type: "direct", c: {x: 1650, y: 760} },
+        { id: "e43", from: "n-b1", to: "n-b2", label: "", type: "direct", c: {x: 2140, y: 1060} },
+        { id: "e44", from: "n-src2", to: "n-t1", label: "joiner/mover/leaver", type: "direct", c: {x: 740, y: 420} },
+        { id: "e45", from: "n-src2", to: "n-src4", label: "оргструктура", type: "direct", c: {x: 330, y: 130} },
+        { id: "e46", from: "n-src4", to: "n-s1", label: "access events", type: "direct", c: {x: 320, y: 760} },
+        { id: "e47", from: "n-d6", to: "n-d1", label: "IP identity", type: "direct", c: {x: 930, y: 130} },
+        { id: "e48", from: "n-d7", to: "n-d1", label: "топология сети", type: "direct", c: {x: 980, y: 120} },
+        { id: "e49", from: "n-d5", to: "n-d2", label: "допуск в сеть", type: "direct", c: {x: 920, y: 130} },
+        { id: "e50", from: "n-o5", to: "n-t4", label: "config drift", type: "direct", c: {x: 1220, y: 980} },
+        { id: "e51", from: "n-o3", to: "n-t8", label: "release evidence", type: "direct", c: {x: 1120, y: 970} },
+        { id: "e52", from: "n-o4", to: "n-s2", label: "patch status", type: "direct", c: {x: 980, y: 1020} },
+        { id: "e53", from: "n-hub", to: "n-f3", label: "ownership", type: "direct", c: {x: 1540, y: 650} },
+
+        { id: "e16", from: "z-disc", to: "z-itsm", label: "zone flow", type: "zone", c: {x: 940, y: 420} },
+        { id: "e17", from: "z-norm", to: "z-itsm", label: "quality feed", type: "zone", c: {x: 1360, y: 560} },
+        { id: "e18", from: "n-b1", to: "n-s1", label: "reference analytics", type: "alt", c: {x: 1200, y: 980} },
+        { id: "e26", from: "z-fin", to: "z-itsm", label: "asset/financial context", type: "zone", c: {x: 1530, y: 560} },
+        { id: "e27", from: "z-sec", to: "z-itsm", label: "risk context", type: "zone", c: {x: 860, y: 980} },
+        { id: "e54", from: "z-src", to: "z-disc", label: "", type: "zone", c: {x: 670, y: 80} },
+        { id: "e55", from: "z-disc", to: "z-norm", label: "", type: "zone", c: {x: 1270, y: 190} },
+        { id: "e56", from: "z-norm", to: "n-hub", label: "", type: "zone", c: {x: 1390, y: 540} },
+        { id: "e57", from: "z-itsm", to: "z-fin", label: "", type: "zone", c: {x: 1460, y: 770} },
+        { id: "e58", from: "z-itsm", to: "z-sec", label: "", type: "zone", c: {x: 760, y: 980} },
+        { id: "e59", from: "z-fin", to: "z-bi", label: "", type: "zone", c: {x: 2000, y: 900} },
+        { id: "e60", from: "z-sec", to: "z-bi", label: "", type: "zone", c: {x: 1340, y: 1160} },
+        { id: "e61", from: "z-ops", to: "z-itsm", label: "", type: "zone", c: {x: 1250, y: 980} },
+        { id: "e62", from: "z-cld", to: "z-disc", label: "", type: "zone", c: {x: 1760, y: 170} },
+        { id: "e63", from: "n-s4", to: "n-s5", label: "data classification", type: "alt", c: {x: 540, y: 1240} },
+        { id: "e64", from: "n-c2", to: "n-hub", label: "policy tags", type: "alt", c: {x: 1680, y: 360} },
+        { id: "e65", from: "n-t2", to: "n-hub", label: "enrichment", type: "alt", c: {x: 1130, y: 620} },
+        { id: "e66", from: "n-o1", to: "n-d1", label: "Monitoring ≠ Discovery", type: "alt", c: {x: 890, y: 620} },
+        { id: "e67", from: "n-t2", to: "n-t1", label: "Service Desk ≠ ITSM", type: "alt", c: {x: 1190, y: 700} },
+        { id: "e68", from: "n-b1", to: "n-hub", label: "BI/DWH ≠ SoT", type: "alt", c: {x: 1660, y: 900} },
+        { id: "e69", from: "n-f1", to: "n-hub", label: "ITAM ≠ CMDB", type: "alt", c: {x: 1370, y: 700} }
+      ]
+    };
+
+    function nodeById(id) { return state.nodes.find(n => n.id === id); }
+    function zoneById(id) { return state.zones.find(z => z.id === id); }
+    function edgeById(id) { return state.edges.find(e => e.id === id); }
+
+    function nodeRect(n) {
+      if (n.hub) return { x: n.x, y: n.y, w: 120, h: 120 };
+      const w = Math.max(110, Math.min(240, n.label.length * 6.4 + 16));
+      const h = 28;
+      return { x: n.x, y: n.y, w, h };
+    }
+    function anchorCenter(entity, isZone=false) {
+      if (isZone) return { x: entity.x + entity.w / 2, y: entity.y + entity.h / 2 };
+      const r = nodeRect(entity);
+      return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+    }
+    function rectForEntity(entity, isZone=false) {
+      if (isZone) return { x: entity.x, y: entity.y, w: entity.w, h: entity.h, type: "rect" };
+      if (entity.hub) {
+        return { x: entity.x, y: entity.y, w: 120, h: 120, type: "circle" };
+      }
+      const r = nodeRect(entity);
+      return { x: r.x, y: r.y, w: r.w, h: r.h, type: "rect" };
+    }
+    function borderPointTowards(rectLike, target) {
+      const cx = rectLike.x + rectLike.w / 2;
+      const cy = rectLike.y + rectLike.h / 2;
+      const dx = target.x - cx;
+      const dy = target.y - cy;
+      if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return { x: cx, y: cy };
+
+      if (rectLike.type === "circle") {
+        const r = rectLike.w / 2;
+        const len = Math.hypot(dx, dy);
+        return { x: cx + (dx / len) * r, y: cy + (dy / len) * r };
+      }
+
+      const hw = rectLike.w / 2;
+      const hh = rectLike.h / 2;
+      const tx = hw / Math.abs(dx || 1e-9);
+      const ty = hh / Math.abs(dy || 1e-9);
+      const t = Math.min(tx, ty);
+      return { x: cx + dx * t, y: cy + dy * t };
+    }
+    function edgeEndpoints(e) {
+      const fromZone = e.from.startsWith("z-");
+      const toZone = e.to.startsWith("z-");
+      const fromObj = fromZone ? zoneById(e.from) : nodeById(e.from);
+      const toObj = toZone ? zoneById(e.to) : nodeById(e.to);
+      if (!fromObj || !toObj) return null;
+      const aCenter = anchorCenter(fromObj, fromZone);
+      const bCenter = anchorCenter(toObj, toZone);
+      const aRect = rectForEntity(fromObj, fromZone);
+      const bRect = rectForEntity(toObj, toZone);
+      const start = borderPointTowards(aRect, bCenter);
+      const end = borderPointTowards(bRect, aCenter);
+      return { sx: start.x, sy: start.y, tx: end.x, ty: end.y };
+    }
+
+    function simplifyRoutes(mode = "normal") {
+      // Группируем связи по направлению, чтобы разводить параллельные линии.
+      const groups = new Map();
+      state.edges.forEach((e) => {
+        const key = `${e.from}__${e.to}__${e.type}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(e);
+      });
+
+      state.edges.forEach((e) => {
+        const ep = edgeEndpoints(e);
+        if (!ep) return;
+        const mx = (ep.sx + ep.tx) / 2;
+        const my = (ep.sy + ep.ty) / 2;
+        const dx = ep.tx - ep.sx;
+        const dy = ep.ty - ep.sy;
+        const len = Math.max(1, Math.hypot(dx, dy));
+        const nx = -dy / len;
+        const ny = dx / len;
+
+        const baseCurve =
+          mode === "minCross"
+            ? (e.type === "zone" ? 220 : e.type === "alt" ? 140 : 88)
+            : (e.type === "zone" ? 120 : e.type === "alt" ? 80 : 52);
+
+        // Разводка параллельных связей.
+        const key = `${e.from}__${e.to}__${e.type}`;
+        const arr = groups.get(key) || [e];
+        const idx = arr.indexOf(e);
+        const spread = (idx - (arr.length - 1) / 2) * (mode === "minCross" ? 72 : 34);
+
+        // Связи из/в HUB делаем мягче и короче по изгибу, чтобы убрать «паутину».
+        const hubFactor = (e.from === "n-hub" || e.to === "n-hub")
+          ? (mode === "minCross" ? 0.95 : 0.72)
+          : 1;
+
+        // Длинные диагонали сильнее выносим дугой.
+        const longFactor = mode === "minCross"
+          ? (len > 1100 ? 1.55 : len > 800 ? 1.4 : len > 550 ? 1.2 : 1.0)
+          : (len > 700 ? 1.25 : len > 450 ? 1.1 : 1.0);
+
+        const curve = baseCurve * hubFactor * longFactor + spread;
+        e.c = {
+          x: mx + nx * curve,
+          y: my + ny * curve
+        };
+      });
+    }
+    function zoneContainsNode(zone, node) {
+      const c = anchorCenter(node, false);
+      return c.x >= zone.x && c.x <= zone.x + zone.w && c.y >= zone.y && c.y <= zone.y + zone.h;
+    }
+
+    function clearDom() {
+      Array.from(workspace.querySelectorAll(".zone,.node")).forEach(el => el.remove());
+      edgesSvg.innerHTML = "";
+    }
+
+    function applyCleanLayout() {
+      // Зоны: слева направо и сверху вниз по архитектурным слоям.
+      const zonePos = {
+        "z-src":  { x: 70,   y: 50,  w: 500, h: 190 },
+        "z-disc": { x: 620,  y: 50,  w: 650, h: 210 },
+        "z-cld":  { x: 1330, y: 50,  w: 520, h: 210 },
+        "z-norm": { x: 620,  y: 300, w: 650, h: 250 },
+        "z-itsm": { x: 620,  y: 600, w: 760, h: 360 },
+        "z-fin":  { x: 1440, y: 600, w: 560, h: 320 },
+        "z-sec":  { x: 70,   y: 1020,w: 860, h: 320 },
+        "z-ops":  { x: 980,  y: 1020,w: 700, h: 320 },
+        "z-bi":   { x: 1730, y: 1020,w: 520, h: 260 }
+      };
+      state.zones.forEach((z) => {
+        const p = zonePos[z.id];
+        if (!p) return;
+        z.x = p.x; z.y = p.y; z.w = p.w; z.h = p.h;
+      });
+
+      // Классы: аккуратная раскладка внутри зон.
+      const nodePos = {
+        "n-src1": [120, 95], "n-src2": [280, 95], "n-src3": [440, 95], "n-src4": [250, 155],
+        "n-d1": [680, 95], "n-d2": [860, 95], "n-d3": [1050, 95], "n-d4": [680, 165], "n-d5": [850, 165], "n-d6": [995, 165], "n-d7": [1135, 165],
+        "n-c1": [1440, 95], "n-c2": [1630, 95],
+        "n-n1": [820, 340], "n-n3": [690, 460], "n-n2": [930, 460], "n-n4": [1110, 460],
+        "n-hub": [980, 350],
+        "n-t1": [900, 690], "n-t2": [1120, 690], "n-t3": [700, 840], "n-t4": [860, 840], "n-t5": [1020, 840], "n-t6": [1180, 840], "n-t7": [1110, 770], "n-t8": [1260, 770], "n-t9": [1320, 840],
+        "n-f1": [1540, 700], "n-f2": [1690, 700], "n-f3": [1850, 700], "n-f4": [1660, 810], "n-f5": [1510, 810], "n-f6": [1830, 810],
+        "n-s1": [170, 1120], "n-s2": [370, 1120], "n-s6": [570, 1120], "n-s3": [170, 1230], "n-s4": [370, 1230], "n-s5": [570, 1230],
+        "n-o1": [1060, 1120], "n-o2": [1280, 1120], "n-o3": [1030, 1230], "n-o4": [1230, 1230], "n-o5": [1420, 1230],
+        "n-b1": [1830, 1090], "n-b2": [2030, 1090]
+      };
+      state.nodes.forEach((n) => {
+        const p = nodePos[n.id];
+        if (!p) return;
+        n.x = p[0]; n.y = p[1];
+      });
+
+      // Сброс ручных маршрутов — пересчитаются автоматически и станут чище.
+      state.edges.forEach((e) => { e.c = null; });
+    }
+
+    function applyMinCrossLayout() {
+      // Более крупное полотно под уменьшение пересечений.
+      workspace.style.width = "3600px";
+      workspace.style.height = "2300px";
+
+      const zonePos = {
+        "z-src":  { x: 90,   y: 70,   w: 700, h: 260 },
+        "z-disc": { x: 920,  y: 70,   w: 920, h: 280 },
+        "z-cld":  { x: 1960, y: 70,   w: 760, h: 260 },
+        "z-norm": { x: 980,  y: 440,  w: 940, h: 340 },
+        "z-itsm": { x: 980,  y: 900,  w: 1100, h: 500 },
+        "z-fin":  { x: 2220, y: 900,  w: 860, h: 440 },
+        "z-sec":  { x: 90,   y: 1540, w: 1140, h: 460 },
+        "z-ops":  { x: 1360, y: 1540, w: 980, h: 460 },
+        "z-bi":   { x: 2500, y: 1540, w: 900, h: 360 }
+      };
+      state.zones.forEach((z) => {
+        const p = zonePos[z.id];
+        if (!p) return;
+        z.x = p.x; z.y = p.y; z.w = p.w; z.h = p.h;
+      });
+
+      // Больше расстояний между узлами внутри зон.
+      const nodePos = {
+        "n-hub": [1480, 600],
+        "n-src1": [150, 130], "n-src2": [390, 130], "n-src3": [620, 130], "n-src4": [390, 220],
+        "n-d1": [1040, 130], "n-d2": [1320, 130], "n-d3": [1600, 130], "n-d4": [1040, 230], "n-d5": [1290, 230], "n-d6": [1500, 230], "n-d7": [1710, 230],
+        "n-c1": [2060, 130], "n-c2": [2360, 130],
+        "n-n1": [1260, 520], "n-n3": [1080, 680], "n-n2": [1420, 680], "n-n4": [1650, 680],
+        "n-t1": [1300, 1040], "n-t2": [1620, 1040], "n-t3": [1040, 1260], "n-t4": [1260, 1260], "n-t5": [1480, 1260], "n-t6": [1700, 1260], "n-t7": [1580, 1140], "n-t8": [1780, 1140], "n-t9": [1910, 1260],
+        "n-f1": [2310, 1040], "n-f2": [2550, 1040], "n-f3": [2820, 1040], "n-f4": [2510, 1190], "n-f5": [2270, 1190], "n-f6": [2780, 1190],
+        "n-s1": [170, 1680], "n-s2": [460, 1680], "n-s6": [760, 1680], "n-s3": [170, 1840], "n-s4": [460, 1840], "n-s5": [760, 1840],
+        "n-o1": [1470, 1680], "n-o2": [1780, 1680], "n-o3": [1420, 1840], "n-o4": [1690, 1840], "n-o5": [1940, 1840],
+        "n-b1": [2620, 1640], "n-b2": [2940, 1640]
+      };
+      state.nodes.forEach((n) => {
+        const p = nodePos[n.id];
+        if (!p) return;
+        n.x = p[0]; n.y = p[1];
+      });
+
+      state.edges.forEach((e) => { e.c = null; });
+    }
+
+    function render() {
+      clearDom();
+      edgesSvg.setAttribute("width", workspace.clientWidth);
+      edgesSvg.setAttribute("height", workspace.clientHeight);
+
+      // defs
+      const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+      defs.innerHTML = `
+        <marker id="arrow-dark" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L9,3 L0,6 z" fill="#111827"></path>
+        </marker>
+        <marker id="arrow-gray" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L9,3 L0,6 z" fill="#475569"></path>
+        </marker>
+        <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L9,3 L0,6 z" fill="#16a34a"></path>
+        </marker>
+      `;
+      edgesSvg.appendChild(defs);
+
+      // zones
+      state.zones.forEach(z => {
+        const el = document.createElement("div");
+        el.className = "zone";
+        el.dataset.zoneId = z.id;
+        el.style.left = z.x + "px"; el.style.top = z.y + "px";
+        el.style.width = z.w + "px"; el.style.height = z.h + "px";
+        el.style.borderColor = z.color;
+        el.style.background = z.color + "20";
+        const header = document.createElement("div");
+        header.className = "zone-header";
+        header.textContent = z.title;
+        el.appendChild(header);
+        if (editMode) {
+          const rh = document.createElement("div");
+          rh.className = "zone-resize";
+          rh.dataset.zoneId = z.id;
+          el.appendChild(rh);
+        }
+        workspace.appendChild(el);
+      });
+
+      // nodes
+      state.nodes.forEach(n => {
+        const el = document.createElement("div");
+        el.className = "node" + (n.hub ? " hub" : "");
+        el.dataset.nodeId = n.id;
+        el.style.left = n.x + "px"; el.style.top = n.y + "px";
+        const r = nodeRect(n);
+        if (!n.hub) el.style.width = r.w + "px";
+        el.textContent = n.label;
+        workspace.appendChild(el);
+      });
+
+      // edges
+      state.edges.forEach(e => drawEdge(e));
+
+      bindInteractions();
+      applySelection();
+    }
+
+    function drawEdge(e) {
+      const ep = edgeEndpoints(e);
+      if (!ep) return;
+      if (!e.c) e.c = { x: (ep.sx + ep.tx) / 2, y: (ep.sy + ep.ty) / 2 - 40 };
+      const d = `M ${ep.sx} ${ep.sy} Q ${e.c.x} ${e.c.y} ${ep.tx} ${ep.ty}`;
+
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.dataset.edgeId = e.id;
+
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", d);
+      path.setAttribute("class", `edge-path ${e.type === "direct" ? "edge-direct" : e.type === "alt" ? "edge-alt" : "edge-zone"}`);
+      path.setAttribute("marker-end", e.type === "direct" ? "url(#arrow-dark)" : e.type === "alt" ? "url(#arrow-gray)" : "url(#arrow-green)");
+      g.appendChild(path);
+
+      const hit = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      hit.setAttribute("d", d);
+      hit.setAttribute("class", "edge-hit");
+      g.appendChild(hit);
+
+      if (e.label) {
+        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        t.setAttribute("class", "edge-label");
+        const mx = 0.25 * ep.sx + 0.5 * e.c.x + 0.25 * ep.tx;
+        const my = 0.25 * ep.sy + 0.5 * e.c.y + 0.25 * ep.ty - 6;
+        t.setAttribute("x", mx);
+        t.setAttribute("y", my);
+        t.textContent = e.label;
+        g.appendChild(t);
+      }
+
+      if (editMode && selectedEdgeId === e.id) {
+        const cp = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        cp.setAttribute("class", "control-point");
+        cp.setAttribute("r", "7");
+        cp.setAttribute("cx", e.c.x);
+        cp.setAttribute("cy", e.c.y);
+        cp.dataset.edgeId = e.id;
+        g.appendChild(cp);
+      }
+      edgesSvg.appendChild(g);
+    }
+
+    function setEditMode(on) {
+      editMode = on;
+      editToggle.textContent = on ? "Редактировать: вкл" : "Редактировать: выкл";
+      editToggle.classList.toggle("active", on);
+      render();
+    }
+
+    function selectEdge(edgeId) {
+      selectedEdgeId = edgeId;
+      selectedNodeId = null;
+      selectedZoneId = null;
+      applySelection();
+      renderEntityCard();
+      render();
+    }
+
+    function selectNode(nodeId) {
+      selectedNodeId = nodeId;
+      selectedEdgeId = null;
+      selectedZoneId = null;
+      applySelection();
+      renderEntityCard();
+      render();
+    }
+
+    function selectZone(zoneId) {
+      selectedZoneId = zoneId;
+      selectedNodeId = null;
+      selectedEdgeId = null;
+      applySelection();
+      renderEntityCard();
+      render();
+    }
+
+    function applySelection() {
+      Array.from(workspace.querySelectorAll(".zone,.node")).forEach(el => el.classList.remove("muted","selected"));
+      Array.from(edgesSvg.querySelectorAll(".edge-path,.edge-label")).forEach(el => el.classList.remove("muted","edge-active"));
+      if (!selectedEdgeId && !selectedNodeId && !selectedZoneId) return;
+
+      // mute all
+      Array.from(workspace.querySelectorAll(".zone,.node")).forEach(el => el.classList.add("muted"));
+      Array.from(edgesSvg.querySelectorAll(".edge-path,.edge-label")).forEach(el => el.classList.add("muted"));
+
+      if (selectedEdgeId) {
+        const e = edgeById(selectedEdgeId);
+        if (!e) return;
+        const eg = edgesSvg.querySelector(`g[data-edge-id="${selectedEdgeId}"]`);
+        if (eg) {
+          const path = eg.querySelector(".edge-path");
+          const label = eg.querySelector(".edge-label");
+          if (path) { path.classList.remove("muted"); path.classList.add("edge-active"); }
+          if (label) label.classList.remove("muted");
+        }
+        const fromZone = e.from.startsWith("z-");
+        const toZone = e.to.startsWith("z-");
+        const fromNode = fromZone ? null : nodeById(e.from);
+        const toNode = toZone ? null : nodeById(e.to);
+        const fromZ = fromZone ? zoneById(e.from) : (fromNode?.zoneId ? zoneById(fromNode.zoneId) : null);
+        const toZ = toZone ? zoneById(e.to) : (toNode?.zoneId ? zoneById(toNode.zoneId) : null);
+        if (fromNode) {
+          const el = workspace.querySelector(`.node[data-node-id="${fromNode.id}"]`);
+          if (el) { el.classList.remove("muted"); el.classList.add("selected"); }
+        }
+        if (toNode) {
+          const el = workspace.querySelector(`.node[data-node-id="${toNode.id}"]`);
+          if (el) { el.classList.remove("muted"); el.classList.add("selected"); }
+        }
+        if (fromZ) {
+          const el = workspace.querySelector(`.zone[data-zone-id="${fromZ.id}"]`);
+          if (el) { el.classList.remove("muted"); el.classList.add("selected"); }
+        }
+        if (toZ) {
+          const el = workspace.querySelector(`.zone[data-zone-id="${toZ.id}"]`);
+          if (el) { el.classList.remove("muted"); el.classList.add("selected"); }
+        }
+      }
+
+      if (selectedNodeId) {
+        const n = nodeById(selectedNodeId);
+        if (!n) return;
+        const nodeEl = workspace.querySelector(`.node[data-node-id="${n.id}"]`);
+        if (nodeEl) { nodeEl.classList.remove("muted"); nodeEl.classList.add("selected"); }
+        if (n.zoneId) {
+          const zEl = workspace.querySelector(`.zone[data-zone-id="${n.zoneId}"]`);
+          if (zEl) { zEl.classList.remove("muted"); zEl.classList.add("selected"); }
+        }
+        state.edges.forEach((e) => {
+          if (e.from !== n.id && e.to !== n.id) return;
+          const eg = edgesSvg.querySelector(`g[data-edge-id="${e.id}"]`);
+          if (!eg) return;
+          const p = eg.querySelector(".edge-path");
+          const l = eg.querySelector(".edge-label");
+          if (p) { p.classList.remove("muted"); p.classList.add("edge-active"); }
+          if (l) l.classList.remove("muted");
+          const otherId = e.from === n.id ? e.to : e.from;
+          if (otherId.startsWith("n-")) {
+            const oNode = nodeById(otherId);
+            if (oNode) {
+              const oEl = workspace.querySelector(`.node[data-node-id="${oNode.id}"]`);
+              if (oEl) { oEl.classList.remove("muted"); oEl.classList.add("selected"); }
+              if (oNode.zoneId) {
+                const oz = workspace.querySelector(`.zone[data-zone-id="${oNode.zoneId}"]`);
+                if (oz) { oz.classList.remove("muted"); oz.classList.add("selected"); }
+              }
+            }
+          } else if (otherId.startsWith("z-")) {
+            const oz = workspace.querySelector(`.zone[data-zone-id="${otherId}"]`);
+            if (oz) { oz.classList.remove("muted"); oz.classList.add("selected"); }
+          }
+        });
+      }
+
+      if (selectedZoneId) {
+        const z = zoneById(selectedZoneId);
+        if (!z) return;
+
+        const zEl = workspace.querySelector(`.zone[data-zone-id="${z.id}"]`);
+        if (zEl) { zEl.classList.remove("muted"); zEl.classList.add("selected"); }
+
+        const zoneNodeIds = state.nodes.filter(n => n.zoneId === z.id).map(n => n.id);
+        zoneNodeIds.forEach((nid) => {
+          const nEl = workspace.querySelector(`.node[data-node-id="${nid}"]`);
+          if (nEl) { nEl.classList.remove("muted"); nEl.classList.add("selected"); }
+        });
+
+        state.edges.forEach((e) => {
+          const fromInZone = e.from === z.id || zoneNodeIds.includes(e.from);
+          const toInZone = e.to === z.id || zoneNodeIds.includes(e.to);
+          if (!fromInZone && !toInZone) return;
+          const eg = edgesSvg.querySelector(`g[data-edge-id="${e.id}"]`);
+          if (!eg) return;
+          const p = eg.querySelector(".edge-path");
+          const l = eg.querySelector(".edge-label");
+          if (p) { p.classList.remove("muted"); p.classList.add("edge-active"); }
+          if (l) l.classList.remove("muted");
+
+          const other = fromInZone ? e.to : e.from;
+          if (other.startsWith("n-")) {
+            const oNode = nodeById(other);
+            if (oNode) {
+              const oEl = workspace.querySelector(`.node[data-node-id="${oNode.id}"]`);
+              if (oEl) { oEl.classList.remove("muted"); oEl.classList.add("selected"); }
+              if (oNode.zoneId) {
+                const oz = workspace.querySelector(`.zone[data-zone-id="${oNode.zoneId}"]`);
+                if (oz) { oz.classList.remove("muted"); oz.classList.add("selected"); }
+              }
+            }
+          } else if (other.startsWith("z-")) {
+            const oz = workspace.querySelector(`.zone[data-zone-id="${other}"]`);
+            if (oz) { oz.classList.remove("muted"); oz.classList.add("selected"); }
+          }
+        });
+      }
+    }
+
+    function bindInteractions() {
+      // edge click
+      Array.from(edgesSvg.querySelectorAll("g[data-edge-id] .edge-hit, g[data-edge-id] .edge-path")).forEach(el => {
+        el.addEventListener("click", (e) => {
+          const edgeId = e.target.closest("g[data-edge-id]")?.dataset.edgeId;
+          if (edgeId) selectEdge(edgeId);
+          e.stopPropagation();
+        });
+      });
+
+      // workspace click clear
+      workspace.onclick = (e) => {
+        if (e.target === workspace || e.target === edgesSvg) {
+          selectedEdgeId = null;
+          selectedNodeId = null;
+          selectedZoneId = null;
+          applySelection();
+          renderEntityCard();
+          render();
+        }
+      };
+
+      // zone click highlight
+      Array.from(workspace.querySelectorAll(".zone")).forEach((zEl) => {
+        zEl.onclick = (ev) => {
+          if (ev.target.classList.contains("zone-resize")) return;
+          const zid = zEl.dataset.zoneId;
+          if (!zid) return;
+          selectZone(zid);
+          ev.stopPropagation();
+        };
+      });
+
+      // node click highlight (доступно всегда, не только в edit mode)
+      Array.from(workspace.querySelectorAll(".node")).forEach((nEl) => {
+        nEl.onclick = (ev) => {
+          const nid = nEl.dataset.nodeId;
+          if (!nid) return;
+          if (createEdgeMode && editMode) {
+            if (!edgeFrom) {
+              edgeFrom = nid;
+              nEl.classList.add("selected");
+            } else {
+              const id = "e" + (Date.now());
+              state.edges.push({ id, from: edgeFrom, to: nid, label: "", type: "direct", c: null });
+              createEdgeMode = false;
+              edgeFrom = null;
+              addEdgeBtn.classList.remove("active");
+              render();
+            }
+            ev.stopPropagation();
+            return;
+          }
+          selectNode(nid);
+          ev.stopPropagation();
+        };
+      });
+
+      // drag zones & nodes
+      if (editMode) {
+        enableDragZones();
+        enableResizeZones();
+        enableDragNodes();
+        enableDragControlPoint();
+      }
+    }
+
+    function enableDragZones() {
+      workspace.querySelectorAll(".zone").forEach(zEl => {
+        const zId = zEl.dataset.zoneId;
+        zEl.onmousedown = (ev) => {
+          if (!editMode || ev.button !== 0) return;
+          ev.preventDefault();
+          const z = zoneById(zId);
+          const sx = ev.clientX, sy = ev.clientY;
+          const ox = z.x, oy = z.y;
+          const inside = state.nodes.filter(n => n.zoneId === zId).map(n => ({ id: n.id, x: n.x, y: n.y }));
+          const mm = (e) => {
+            const dx = (e.clientX - sx) / scale;
+            const dy = (e.clientY - sy) / scale;
+            z.x = ox + dx; z.y = oy + dy;
+            inside.forEach(item => {
+              const n = nodeById(item.id);
+              n.x = item.x + dx; n.y = item.y + dy;
+            });
+            render();
+          };
+          const mu = () => { window.removeEventListener("mousemove", mm); window.removeEventListener("mouseup", mu); };
+          window.addEventListener("mousemove", mm);
+          window.addEventListener("mouseup", mu);
+        };
+      });
+    }
+
+    function enableResizeZones() {
+      workspace.querySelectorAll(".zone-resize").forEach((h) => {
+        const zId = h.dataset.zoneId;
+        h.onmousedown = (ev) => {
+          if (!editMode || ev.button !== 0) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          const z = zoneById(zId);
+          const sx = ev.clientX, sy = ev.clientY;
+          const ow = z.w, oh = z.h;
+          const minW = 260, minH = 140;
+          const mm = (e) => {
+            const dx = (e.clientX - sx) / scale;
+            const dy = (e.clientY - sy) / scale;
+            z.w = Math.max(minW, ow + dx);
+            z.h = Math.max(minH, oh + dy);
+            render();
+          };
+          const mu = () => {
+            window.removeEventListener("mousemove", mm);
+            window.removeEventListener("mouseup", mu);
+          };
+          window.addEventListener("mousemove", mm);
+          window.addEventListener("mouseup", mu);
+        };
+      });
+    }
+
+    function enableDragNodes() {
+      workspace.querySelectorAll(".node").forEach(nEl => {
+        const nId = nEl.dataset.nodeId;
+        nEl.onmousedown = (ev) => {
+          if (!editMode || ev.button !== 0) return;
+          ev.preventDefault();
+          const n = nodeById(nId);
+          const sx = ev.clientX, sy = ev.clientY;
+          const ox = n.x, oy = n.y;
+          const mm = (e) => {
+            const dx = (e.clientX - sx) / scale;
+            const dy = (e.clientY - sy) / scale;
+            n.x = ox + dx; n.y = oy + dy;
+            render();
+          };
+          const mu = () => { window.removeEventListener("mousemove", mm); window.removeEventListener("mouseup", mu); };
+          window.addEventListener("mousemove", mm);
+          window.addEventListener("mouseup", mu);
+        };
+      });
+    }
+
+    function enableDragControlPoint() {
+      edgesSvg.querySelectorAll(".control-point").forEach(cp => {
+        cp.onmousedown = (ev) => {
+          if (!editMode || ev.button !== 0) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          const edge = edgeById(cp.dataset.edgeId);
+          const sx = ev.clientX, sy = ev.clientY;
+          const ox = edge.c.x, oy = edge.c.y;
+          const mm = (e) => {
+            const dx = (e.clientX - sx) / scale;
+            const dy = (e.clientY - sy) / scale;
+            edge.c.x = ox + dx; edge.c.y = oy + dy;
+            render();
+          };
+          const mu = () => { window.removeEventListener("mousemove", mm); window.removeEventListener("mouseup", mu); };
+          window.addEventListener("mousemove", mm);
+          window.addEventListener("mouseup", mu);
+        };
+      });
+    }
+
+    // toolbar
+    editToggle.onclick = () => setEditMode(!editMode);
+    addZoneBtn.onclick = () => {
+      if (!editMode) return alert("Сначала включите режим Редактировать.");
+      const title = prompt("Название зоны:");
+      if (!title) return;
+      const id = "z-" + Date.now();
+      state.zones.push({ id, title, x: 300, y: 300, w: 420, h: 220, color: "#0ea5e9" });
+      render();
+    };
+    addClassBtn.onclick = () => {
+      if (!editMode) return alert("Сначала включите режим Редактировать.");
+      const label = prompt("Название класса:");
+      if (!label) return;
+      const zoneId = prompt("ID зоны (например z-itsm), пусто = без зоны:");
+      const id = "n-" + Date.now();
+      state.nodes.push({ id, label, x: 500, y: 500, zoneId: zoneId || null, hub: false });
+      render();
+    };
+    addEdgeBtn.onclick = () => {
+      if (!editMode) return alert("Сначала включите режим Редактировать.");
+      createEdgeMode = !createEdgeMode;
+      edgeFrom = null;
+      addEdgeBtn.classList.toggle("active", createEdgeMode);
+      if (createEdgeMode) alert("Режим + Связь: кликните сначала по узлу-источнику, затем по узлу-получателю.");
+      render();
+    };
+    fitBtn.onclick = () => {
+      scale = Math.min(viewport.clientWidth / workspace.clientWidth, viewport.clientHeight / workspace.clientHeight);
+      workspace.style.transform = `scale(${scale})`;
+      viewport.scrollLeft = 0; viewport.scrollTop = 0;
+    };
+    resetBtn.onclick = () => {
+      scale = 1;
+      workspace.style.transform = "scale(1)";
+      viewport.scrollLeft = 0; viewport.scrollTop = 0;
+    };
+    exportBtn.onclick = () => {
+      const out = JSON.stringify(state, null, 2);
+      navigator.clipboard.writeText(out).then(() => alert("JSON скопирован в буфер обмена."));
+    };
+    layoutBtn.onclick = () => {
+      workspace.style.width = "2600px";
+      workspace.style.height = "1600px";
+      applyCleanLayout();
+      simplifyRoutes("normal");
+      render();
+    };
+    untangleBtn.onclick = () => {
+      simplifyRoutes("normal");
+      render();
+    };
+    minCrossBtn.onclick = () => {
+      applyMinCrossLayout();
+      simplifyRoutes("minCross");
+      render();
+      scale = 0.56;
+      workspace.style.transform = `scale(${scale})`;
+      viewport.scrollLeft = 0;
+      viewport.scrollTop = 0;
+    };
+
+    viewport.addEventListener("wheel", (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const next = scale + (e.deltaY < 0 ? 0.08 : -0.08);
+      scale = Math.max(0.35, Math.min(2.5, next));
+      workspace.style.transform = `scale(${scale})`;
+    }, { passive: false });
+
+    applyCleanLayout();
+    simplifyRoutes("normal");
+    renderVendorStub();
+    renderEntityCard();
+    searchInput.addEventListener("input", (e) => runSearch(e.target.value));
+    render();
+  </script>
+</body>
+</html>
