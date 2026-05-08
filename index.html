@@ -260,12 +260,14 @@
       `;
     }
 
-    function openKnowledgeModal() {
+    function openKnowledgeModal(options = {}) {
+      const focusSearch = options.focusSearch !== false;
       knowledgeOpen = true;
       infoPanel.classList.add("open");
       knowledgeBackdrop.classList.add("open");
       document.body.style.overflow = "hidden";
-      searchInput.focus();
+      renderEntityCard();
+      if (focusSearch) searchInput.focus();
     }
 
     function closeKnowledgeModal() {
@@ -860,27 +862,24 @@
       selectedEdgeId = edgeId;
       selectedNodeId = null;
       selectedZoneId = null;
-      applySelection();
-      renderEntityCard();
       render();
+      openKnowledgeModal({ focusSearch: false });
     }
 
     function selectNode(nodeId) {
       selectedNodeId = nodeId;
       selectedEdgeId = null;
       selectedZoneId = null;
-      applySelection();
-      renderEntityCard();
       render();
+      openKnowledgeModal({ focusSearch: false });
     }
 
     function selectZone(zoneId) {
       selectedZoneId = zoneId;
       selectedNodeId = null;
       selectedEdgeId = null;
-      applySelection();
-      renderEntityCard();
       render();
+      openKnowledgeModal({ focusSearch: false });
     }
 
     function applySelection() {
@@ -1016,13 +1015,12 @@
 
       // workspace click clear
       workspace.onclick = (e) => {
-        if (e.target === workspace || e.target === edgesSvg) {
+        if (e.target === workspace || e.target === edgesSvg || e.target === viewport) {
           selectedEdgeId = null;
           selectedNodeId = null;
           selectedZoneId = null;
-          applySelection();
-          renderEntityCard();
           render();
+          if (knowledgeOpen) renderEntityCard();
         }
       };
 
