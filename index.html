@@ -6,15 +6,23 @@
   <title>Enterprise Dataflow Editor v4</title>
   <style>
     body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: #f1f5f9; color: #0f172a; }
-    .app { height: 100vh; display: grid; grid-template-rows: auto 1fr; }
-    .topbar {
-      display: flex; gap: 8px; align-items: center; padding: 10px 12px;
-      background: #fff; border-bottom: 1px solid #cbd5e1;
+    .app { height: 100vh; position: relative; }
+    .sidebar {
+      position: absolute; left: 12px; top: 12px; bottom: 12px; width: 260px; z-index: 90;
+      background: rgba(255,255,255,0.96); border: 1px solid #cbd5e1; border-radius: 12px; overflow: auto;
+      box-shadow: 0 10px 30px rgba(15,23,42,0.12); transition: width .2s ease;
     }
+    .sidebar.collapsed { width: 54px; overflow: hidden; }
+    .sidebar-head { display: flex; align-items: center; justify-content: space-between; padding: 10px; border-bottom: 1px solid #e2e8f0; }
+    .sidebar-title { font-size: 13px; font-weight: 700; white-space: nowrap; }
+    .sidebar.collapsed .sidebar-title { display: none; }
+    .sidebar-body { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+    .sidebar.collapsed .sidebar-body { display: none; }
+    .sidebar .btn { width: 100%; text-align: left; }
     .btn { border: 1px solid #94a3b8; background: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 13px; }
     .btn:hover { background: #f8fafc; }
     .btn.active { background: #0f172a; color: #fff; border-color: #0f172a; }
-    .badge { margin-left: auto; font-size: 12px; color: #334155; background: #dbeafe; border: 1px solid #93c5fd; padding: 3px 8px; border-radius: 999px; }
+    .badge { font-size: 12px; color: #334155; background: #dbeafe; border: 1px solid #93c5fd; padding: 3px 8px; border-radius: 999px; }
     .workspace-wrap { position: relative; overflow: hidden; }
     #workspace {
       position: relative; width: 2600px; height: 1600px; margin: 0; background: #f8fafc;
@@ -65,16 +73,26 @@
     .edge-zone { stroke: #16a34a; }
     .edge-active { stroke: #0f172a !important; stroke-width: 3.2 !important; }
     .control-point { fill: #2563eb; stroke: #fff; stroke-width: 1.5; cursor: move; pointer-events: all; }
-    .panel {
-      position: absolute; right: 12px; top: 56px; width: 280px; max-height: calc(100% - 68px);
-      overflow: auto; background: rgba(255,255,255,0.95); border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px;
-      font-size: 12px;
-      transition: width .2s ease, padding .2s ease;
+    .modal-backdrop {
+      position: absolute; inset: 0; z-index: 120; background: rgba(2, 6, 23, 0.45); backdrop-filter: blur(4px);
+      display: none;
     }
-    .panel.collapsed { width: 42px; padding: 10px 6px; overflow: hidden; }
-    .panel.collapsed .panel-body { display: none; }
+    .modal-backdrop.open { display: block; }
+    .knowledge-modal {
+      position: absolute; z-index: 130; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      width: min(880px, calc(100vw - 60px)); max-height: calc(100vh - 80px); display: none;
+      background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; box-shadow: 0 20px 60px rgba(15,23,42,0.28);
+      overflow: hidden;
+    }
+    .knowledge-modal.open { display: block; }
+    .knowledge-modal-body { max-height: calc(100vh - 150px); overflow: auto; padding: 12px; }
     .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .icon-btn { border: 1px solid #94a3b8; background: #fff; border-radius: 8px; padding: 2px 8px; cursor: pointer; font-size: 12px; }
+    .fab-knowledge {
+      position: absolute; right: 14px; bottom: 14px; z-index: 95;
+      border: 1px solid #1d4ed8; background: #1d4ed8; color: #fff; border-radius: 999px; padding: 8px 14px; cursor: pointer;
+      box-shadow: 0 8px 20px rgba(29,78,216,0.35); font-size: 12px;
+    }
     .panel h4 { margin: 0 0 8px 0; font-size: 13px; }
     .hint { color: #475569; margin-top: 8px; line-height: 1.35; }
     .search-input { width: 100%; box-sizing: border-box; border: 1px solid #94a3b8; border-radius: 8px; padding: 6px 8px; font-size: 12px; }
@@ -87,31 +105,40 @@
 </head>
 <body>
   <div class="app">
-    <div class="topbar">
-      <button class="btn" id="editToggle">Редактировать: выкл</button>
-      <button class="btn" id="addZoneBtn">+ Зона</button>
-      <button class="btn" id="addClassBtn">+ Класс</button>
-      <button class="btn" id="addEdgeBtn">+ Связь</button>
-      <button class="btn" id="fitBtn">Подогнать в окно</button>
-      <button class="btn" id="resetBtn">Сброс вида</button>
-      <button class="btn" id="layoutBtn">Авто-раскладка</button>
-      <button class="btn" id="untangleBtn">Упростить связи</button>
-      <button class="btn" id="minCrossBtn">Минимум пересечений</button>
-      <button class="btn" id="exportBtn">Экспорт JSON</button>
-      <span class="badge">v4.8 knowledge-cards-search</span>
-    </div>
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <span class="sidebar-title">Меню</span>
+        <button class="icon-btn" id="toggleSidebarBtn">⟨</button>
+      </div>
+      <div class="sidebar-body">
+        <button class="btn" id="editToggle">Редактировать: выкл</button>
+        <button class="btn" id="addZoneBtn">+ Зона</button>
+        <button class="btn" id="addClassBtn">+ Класс</button>
+        <button class="btn" id="addEdgeBtn">+ Связь</button>
+        <button class="btn" id="fitBtn">Подогнать в окно</button>
+        <button class="btn" id="resetBtn">Сброс вида</button>
+        <button class="btn" id="layoutBtn">Авто-раскладка</button>
+        <button class="btn" id="untangleBtn">Упростить связи</button>
+        <button class="btn" id="minCrossBtn">Минимум пересечений</button>
+        <button class="btn" id="exportBtn">Экспорт JSON</button>
+        <button class="btn" id="openKnowledgeBtn">База знаний</button>
+        <span class="badge">v4.9 sidebar+knowledge-modal</span>
+      </div>
+    </aside>
     <div class="workspace-wrap">
       <div id="viewport">
         <div id="workspace">
           <svg id="edges"></svg>
         </div>
       </div>
-      <div class="panel" id="infoPanel">
+      <button class="fab-knowledge" id="openKnowledgeFab">База знаний</button>
+      <div class="modal-backdrop" id="knowledgeBackdrop"></div>
+      <div class="knowledge-modal" id="infoPanel">
         <div class="panel-head">
-          <h4>Knowledge Layer</h4>
-          <button class="icon-btn" id="toggleKnowledgeBtn">⟨</button>
+          <h4>База знаний</h4>
+          <button class="icon-btn" id="closeKnowledgeBtn">✕</button>
         </div>
-        <div class="panel-body">
+        <div class="knowledge-modal-body">
           <input id="searchInput" class="search-input" placeholder="Поиск: функция, задача, результат, класс..." />
           <div class="hint">Поддерживается лексический поиск + базовые синонимы.</div>
           <div id="searchResults" class="panel-section"></div>
@@ -126,6 +153,11 @@
     const viewport = document.getElementById("viewport");
     const workspace = document.getElementById("workspace");
     const edgesSvg = document.getElementById("edges");
+    const sidebar = document.getElementById("sidebar");
+    const toggleSidebarBtn = document.getElementById("toggleSidebarBtn");
+    const openKnowledgeBtn = document.getElementById("openKnowledgeBtn");
+    const openKnowledgeFab = document.getElementById("openKnowledgeFab");
+    const knowledgeBackdrop = document.getElementById("knowledgeBackdrop");
     const editToggle = document.getElementById("editToggle");
     const addZoneBtn = document.getElementById("addZoneBtn");
     const addClassBtn = document.getElementById("addClassBtn");
@@ -137,7 +169,7 @@
     const minCrossBtn = document.getElementById("minCrossBtn");
     const exportBtn = document.getElementById("exportBtn");
     const infoPanel = document.getElementById("infoPanel");
-    const toggleKnowledgeBtn = document.getElementById("toggleKnowledgeBtn");
+    const closeKnowledgeBtn = document.getElementById("closeKnowledgeBtn");
     const searchInput = document.getElementById("searchInput");
     const searchResults = document.getElementById("searchResults");
     const entityCard = document.getElementById("entityCard");
@@ -150,7 +182,8 @@
     let selectedZoneId = null;
     let createEdgeMode = false;
     let edgeFrom = null;
-    let knowledgeCollapsed = false;
+    let sidebarCollapsed = false;
+    let knowledgeOpen = false;
     const KB = window.ENTERPRISE_KB || { zones: {}, classReference: {}, classSheets: {} };
     const SEARCH_SYNONYMS = {
       "стоимость": ["finops", "финансы", "затраты", "tco", "бюджет"],
@@ -224,6 +257,21 @@
           <span class="pill">confidence score</span>
         </div>
       `;
+    }
+
+    function openKnowledgeModal() {
+      knowledgeOpen = true;
+      infoPanel.classList.add("open");
+      knowledgeBackdrop.classList.add("open");
+      document.body.style.overflow = "hidden";
+      searchInput.focus();
+    }
+
+    function closeKnowledgeModal() {
+      knowledgeOpen = false;
+      infoPanel.classList.remove("open");
+      knowledgeBackdrop.classList.remove("open");
+      document.body.style.overflow = "";
     }
 
     function renderEntityCard() {
@@ -1196,11 +1244,18 @@
     renderVendorStub();
     renderEntityCard();
     searchInput.addEventListener("input", (e) => runSearch(e.target.value));
-    toggleKnowledgeBtn.addEventListener("click", () => {
-      knowledgeCollapsed = !knowledgeCollapsed;
-      infoPanel.classList.toggle("collapsed", knowledgeCollapsed);
-      toggleKnowledgeBtn.textContent = knowledgeCollapsed ? "⟩" : "⟨";
-      toggleKnowledgeBtn.title = knowledgeCollapsed ? "Развернуть" : "Свернуть";
+    toggleSidebarBtn.addEventListener("click", () => {
+      sidebarCollapsed = !sidebarCollapsed;
+      sidebar.classList.toggle("collapsed", sidebarCollapsed);
+      toggleSidebarBtn.textContent = sidebarCollapsed ? "⟩" : "⟨";
+      toggleSidebarBtn.title = sidebarCollapsed ? "Развернуть меню" : "Свернуть меню";
+    });
+    openKnowledgeBtn.addEventListener("click", openKnowledgeModal);
+    openKnowledgeFab.addEventListener("click", openKnowledgeModal);
+    closeKnowledgeBtn.addEventListener("click", closeKnowledgeModal);
+    knowledgeBackdrop.addEventListener("click", closeKnowledgeModal);
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && knowledgeOpen) closeKnowledgeModal();
     });
     render();
   </script>
