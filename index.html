@@ -69,7 +69,12 @@
       position: absolute; right: 12px; top: 56px; width: 280px; max-height: calc(100% - 68px);
       overflow: auto; background: rgba(255,255,255,0.95); border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px;
       font-size: 12px;
+      transition: width .2s ease, padding .2s ease;
     }
+    .panel.collapsed { width: 42px; padding: 10px 6px; overflow: hidden; }
+    .panel.collapsed .panel-body { display: none; }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .icon-btn { border: 1px solid #94a3b8; background: #fff; border-radius: 8px; padding: 2px 8px; cursor: pointer; font-size: 12px; }
     .panel h4 { margin: 0 0 8px 0; font-size: 13px; }
     .hint { color: #475569; margin-top: 8px; line-height: 1.35; }
     .search-input { width: 100%; box-sizing: border-box; border: 1px solid #94a3b8; border-radius: 8px; padding: 6px 8px; font-size: 12px; }
@@ -102,12 +107,17 @@
         </div>
       </div>
       <div class="panel" id="infoPanel">
-        <h4>Knowledge Layer</h4>
-        <input id="searchInput" class="search-input" placeholder="Поиск: функция, задача, результат, класс..." />
-        <div class="hint">Поддерживается лексический поиск + базовые синонимы.</div>
-        <div id="searchResults" class="panel-section"></div>
-        <div id="entityCard" class="panel-section"></div>
-        <div id="vendorCard" class="panel-section"></div>
+        <div class="panel-head">
+          <h4>Knowledge Layer</h4>
+          <button class="icon-btn" id="toggleKnowledgeBtn">⟨</button>
+        </div>
+        <div class="panel-body">
+          <input id="searchInput" class="search-input" placeholder="Поиск: функция, задача, результат, класс..." />
+          <div class="hint">Поддерживается лексический поиск + базовые синонимы.</div>
+          <div id="searchResults" class="panel-section"></div>
+          <div id="entityCard" class="panel-section"></div>
+          <div id="vendorCard" class="panel-section"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -127,6 +137,7 @@
     const minCrossBtn = document.getElementById("minCrossBtn");
     const exportBtn = document.getElementById("exportBtn");
     const infoPanel = document.getElementById("infoPanel");
+    const toggleKnowledgeBtn = document.getElementById("toggleKnowledgeBtn");
     const searchInput = document.getElementById("searchInput");
     const searchResults = document.getElementById("searchResults");
     const entityCard = document.getElementById("entityCard");
@@ -139,6 +150,7 @@
     let selectedZoneId = null;
     let createEdgeMode = false;
     let edgeFrom = null;
+    let knowledgeCollapsed = false;
     const KB = window.ENTERPRISE_KB || { zones: {}, classReference: {}, classSheets: {} };
     const SEARCH_SYNONYMS = {
       "стоимость": ["finops", "финансы", "затраты", "tco", "бюджет"],
@@ -1184,6 +1196,12 @@
     renderVendorStub();
     renderEntityCard();
     searchInput.addEventListener("input", (e) => runSearch(e.target.value));
+    toggleKnowledgeBtn.addEventListener("click", () => {
+      knowledgeCollapsed = !knowledgeCollapsed;
+      infoPanel.classList.toggle("collapsed", knowledgeCollapsed);
+      toggleKnowledgeBtn.textContent = knowledgeCollapsed ? "⟩" : "⟨";
+      toggleKnowledgeBtn.title = knowledgeCollapsed ? "Развернуть" : "Свернуть";
+    });
     render();
   </script>
 </body>
