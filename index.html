@@ -360,7 +360,7 @@
           <button type="button" class="btn" id="kbGapsRefreshBtn" style="margin-bottom:6px;">Обновить отчёт</button>
           <div id="kbGapsReport" class="kb-gaps-report muted-text" style="font-size:11px;line-height:1.4;max-height:280px;overflow:auto;"></div>
         </div>
-        <span class="badge">v12 проектная схема из конфигуратора</span>
+        <span class="badge">v13 projectMap через localStorage</span>
       </div>
     </aside>
     <div class="workspace-wrap">
@@ -1869,7 +1869,7 @@
     function tryApplyProjectMapFromStorage() {
       const p = new URLSearchParams(location.search);
       if (p.get("projectMap") !== "1") return;
-      const raw = sessionStorage.getItem(PROJECT_MAP_STORAGE_KEY);
+      const raw = localStorage.getItem(PROJECT_MAP_STORAGE_KEY);
       if (!raw) return;
       let data;
       try {
@@ -1925,7 +1925,7 @@
       return `
         <h3>Проект по конфигуратору</h3>
         <p class="hint" style="font-size:11px;margin:0 0 8px;line-height:1.35;">Урезанная схема: <b>${nClass}</b> классов, <b>${nZones}</b> зон, <b>${nEdges}</b> связей (все рёбра между оставшимися узлами и зонами). Класс на карте → база с фильтром по выбранным вендорам.</p>
-        <a class="btn" href="./index.html" style="display:block;text-align:center;text-decoration:none;box-sizing:border-box;margin-bottom:8px;">Полная схема →</a>
+        <a class="btn pm-exit-project-map" href="./index.html" style="display:block;text-align:center;text-decoration:none;box-sizing:border-box;margin-bottom:8px;">Полная схема →</a>
         <div style="font-size:11px;margin-bottom:6px;"><b>Выбранные продукты</b></div>
         <ul style="margin:0 0 10px;padding-left:1.1rem;font-size:11px;max-height:160px;overflow:auto;">${(ctx?.picks || [])
           .slice(0, 32)
@@ -1939,13 +1939,21 @@
     }
 
     function wireProjectMapSidebar() {
+      document.querySelector("#projectMapSidebarSection .pm-exit-project-map")?.addEventListener("click", () => {
+        try {
+          localStorage.removeItem(PROJECT_MAP_STORAGE_KEY);
+        } catch (_) {
+          /* ignore */
+        }
+        window.PROJECT_MAP_CTX = null;
+      });
       document.getElementById("pmInfraAddBtn")?.addEventListener("click", () => {
         const ta = document.getElementById("pmInfraInput");
         const line = ta?.value?.trim();
         if (!line) return;
         let data = {};
         try {
-          const raw = sessionStorage.getItem(PROJECT_MAP_STORAGE_KEY);
+          const raw = localStorage.getItem(PROJECT_MAP_STORAGE_KEY);
           if (raw) data = JSON.parse(raw);
         } catch {
           data = {};
@@ -1953,7 +1961,7 @@
         if (!Array.isArray(data.clientInfra)) data.clientInfra = [];
         data.clientInfra.push({ text: line, id: `infra-${Date.now()}` });
         try {
-          sessionStorage.setItem(PROJECT_MAP_STORAGE_KEY, JSON.stringify(data));
+          localStorage.setItem(PROJECT_MAP_STORAGE_KEY, JSON.stringify(data));
         } catch (e) {
           console.warn(e);
           return;
@@ -1963,6 +1971,16 @@
         if (ul) ul.insertAdjacentHTML("beforeend", `<li style="font-size:11px;margin:4px 0;line-height:1.35;">${esc(line)}</li>`);
         if (ta) ta.value = "";
       });
+    }
+
+    function showProjectMapMissingDataHint() {
+      const p = new URLSearchParams(location.search);
+      if (p.get("projectMap") !== "1") return;
+      if (window.PROJECT_MAP_CTX?.active) return;
+      const host = document.getElementById("projectMapSidebarSection");
+      if (!host) return;
+      host.style.display = "block";
+      host.innerHTML = `<h3>Проектная схема</h3><p class="hint" style="font-size:11px;line-height:1.45;">Данные выбора не найдены в этом браузере. Откройте <a href="./configurator.html">конфигуратор</a> и снова нажмите «Визуализировать на схеме» (передача через localStorage).</p>`;
     }
 
     function nodeRect(n) {
@@ -3099,6 +3117,7 @@
     }, true);
 
     tryApplyProjectMapFromStorage();
+    showProjectMapMissingDataHint();
     initViewFiltersUi();
     applyCleanLayout();
     recomputeEdgeOrthos();

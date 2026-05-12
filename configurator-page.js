@@ -99,7 +99,7 @@
   /** Свободный режим: второй клик «Подобрать бандл» строит таблицу бандла после корреляции. */
   let FREE_BUNDLE_STEP2 = false;
 
-  /** Общий ключ с index.html для передачи выбора вендоров на урезанную схему. */
+  /** Общий ключ с index.html. Только localStorage: новая вкладка не видит sessionStorage родителя. */
   const PROJECT_MAP_STORAGE_KEY = "enterprise_it_project_map_v1";
 
   const RU_STEM_SUFFIXES = [
@@ -830,7 +830,7 @@
     const data = buildProjectMapPayload();
     if (!data) return;
     try {
-      sessionStorage.setItem(PROJECT_MAP_STORAGE_KEY, JSON.stringify(data));
+      localStorage.setItem(PROJECT_MAP_STORAGE_KEY, JSON.stringify(data));
     } catch (e) {
       console.warn(e);
       return;
