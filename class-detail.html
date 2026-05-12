@@ -23,9 +23,24 @@
     .panel { background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px; margin-top: 16px; box-shadow: 0 4px 20px rgba(15,23,42,0.06); }
     .panel h2 { margin: 0 0 10px; font-size: 14px; }
     .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; margin-right: 4px; background: #e2e8f0; color: #0f172a; }
-    table.ca { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
-    table.ca th, table.ca td { border: 1px solid #e2e8f0; padding: 8px; text-align: left; }
-    table.ca th { background: #f8fafc; }
+    table.ca { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; margin-top: 8px; min-width: max-content; }
+    table.ca th, table.ca td { border: 1px solid #e2e8f0; padding: 8px; text-align: left; vertical-align: top; }
+    table.ca th { background: #f8fafc; font-weight: 600; }
+    table.ca thead th { position: sticky; top: 0; z-index: 2; box-shadow: 0 1px 0 #e2e8f0; }
+    table.ca tbody th { background: #fff; }
+    table.ca th:first-child, table.ca td:first-child {
+      position: sticky; left: 0; z-index: 3; background: #fff; min-width: 160px; max-width: 260px;
+      box-shadow: 1px 0 0 #e2e8f0;
+    }
+    table.ca thead th:first-child { z-index: 5; background: #f8fafc; }
+    .ca-scroll {
+      overflow: auto; max-width: 100%; max-height: 72vh; margin-top: 8px;
+      border: 1px solid #e2e8f0; border-radius: 8px; background: #fff;
+    }
+    th.ca-vendor-head { cursor: pointer; user-select: none; white-space: nowrap; max-width: 140px; font-size: 11px; line-height: 1.25; }
+    th.ca-vendor-head:hover { background: #e0f2fe; }
+    th.ca-vendor-head.is-on, td.ca-vendor-cell.is-on { background: #dbeafe !important; box-shadow: inset 0 0 0 1px #2563eb; }
+    td.ca-score { text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
     details.kb-cascade {
       margin: 8px 0;
       border: 1px solid #e2e8f0;
@@ -95,19 +110,13 @@
     </div>
     <div class="panel">
       <h2 id="anchor-ca">Зачаток конкурентного анализа</h2>
-      <p class="muted">Черновик: заполните по мере подключения матрицы вендоров. Пока — структура таблицы и напоминание, что сравнение идёт по функциям из листа класса.</p>
-      <table class="ca">
-        <thead>
-          <tr>
-            <th>Функция / критерий</th>
-            <th>Наш статус</th>
-            <th>Вендор A</th>
-            <th>Вендор B</th>
-            <th>Комментарий / ссылка</th>
-          </tr>
-        </thead>
-        <tbody id="caTableBody"></tbody>
-      </table>
+      <p class="muted">Скоринг по тексту функции vs описание продукта (каталог merge-landscape). Клик по заголовку вендора подсвечивает колонку; шапка и первый столбец закреплены при горизонтальном скролле.</p>
+      <div class="ca-scroll" role="region" aria-label="Таблица конкурентного анализа">
+        <table class="ca" id="caCompTable">
+          <thead id="caTableHead"></thead>
+          <tbody id="caTableBody"></tbody>
+        </table>
+      </div>
     </div>
     </div>
     <aside class="toc-col" id="tocAside" aria-label="Оглавление">
@@ -184,6 +193,166 @@
       return null;
     }
 
+    function prepSearch(s) {
+      return nrm(String(s || "").replace(/ё/g, "е"));
+    }
+
+    function tokenizeQuery(q) {
+      return prepSearch(q)
+        .split(/[^a-z0-9а-яіїєґ]+/i)
+        .filter((t) => t.length >= 2);
+    }
+
+    function expandQueryTokens(rawTokens) {
+      const set = new Set();
+      for (const raw of rawTokens) {
+        const p = prepSearch(raw);
+        if (!p) continue;
+        set.add(p);
+        if (p.length > 5) set.add(p.slice(0, -1));
+      }
+      return [...set].filter((t) => t && t.length >= 2);
+    }
+
+    function scoreSearchItem(item, tokens) {
+      const hay = prepSearch(`${item.title} ${item.body}`).replace(/\s+/g, " ");
+      const ht = prepSearch(item.title).replace(/\s+/g, " ");
+      let score = 0;
+      for (const t of tokens) {
+        if (!t || t.length < 2) continue;
+        if (hay.includes(t)) score += ht.includes(t) ? 7 : 3;
+      }
+      return score;
+    }
+
+    let vendorsByClassDetailCache;
+
+    function vendorsJsonUrlDetail() {
+      try {
+        return new URL("kb/merged/vendors-by-class.json", window.location.href).toString();
+      } catch {
+        return "kb/merged/vendors-by-class.json";
+      }
+    }
+
+    async function ensureVendorsCatalogDetail() {
+      if (vendorsByClassDetailCache !== undefined) return vendorsByClassDetailCache;
+      try {
+        const r = await fetch(vendorsJsonUrlDetail(), { cache: "no-cache" });
+        vendorsByClassDetailCache = r.ok ? await r.json() : {};
+      } catch {
+        vendorsByClassDetailCache = {};
+      }
+      return vendorsByClassDetailCache;
+    }
+
+    function catalogEntriesForDetail(cat, ref, sheet, labelPlain) {
+      if (!cat || typeof cat !== "object") return [];
+      const rawKeys = [ref?.key, sheet?.key, labelPlain.replace(/\n/g, " ")].filter(Boolean);
+      for (const tk of rawKeys) {
+        if (cat[tk]?.length) return cat[tk];
+        const t = prepSearch(tk);
+        for (const k of Object.keys(cat)) {
+          if (prepSearch(k) === t) return cat[k];
+        }
+      }
+      const parts = String(labelPlain || "")
+        .split("/")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      for (const part of parts) {
+        const t = prepSearch(part);
+        for (const k of Object.keys(cat)) {
+          if (prepSearch(k) === t) return cat[k];
+        }
+      }
+      const label = prepSearch(labelPlain.replace(/\n/g, " ") || "");
+      let best = [];
+      let bestLen = 0;
+      for (const k of Object.keys(cat)) {
+        const ck = prepSearch(k);
+        if (!ck) continue;
+        if (label.includes(ck) || ck.includes(label)) {
+          if (ck.length >= bestLen) {
+            bestLen = ck.length;
+            best = cat[k] || [];
+          }
+        }
+      }
+      return best;
+    }
+
+    const VENDOR_PRESTIGE_RULES = [
+      [/microsoft|azure/i, 10],
+      [/servicenow/i, 9],
+      [/bmc|remedy|helix/i, 8],
+      [/ibm|maximo/i, 7],
+      [/splunk/i, 6],
+      [/aws|amazon/i, 6],
+      [/google|gcp/i, 5],
+      [/oracle/i, 5],
+      [/sap/i, 5],
+      [/salesforce/i, 4],
+      [/vmware|broadcom/i, 4],
+      [/palo alto|prisma/i, 4],
+      [/flexera/i, 4],
+      [/hashicorp|terraform/i, 3]
+    ];
+
+    function vendorPrestigeBonus(vendor) {
+      const v = String(vendor || "");
+      for (const [re, b] of VENDOR_PRESTIGE_RULES) {
+        if (re.test(v)) return b;
+      }
+      return 0;
+    }
+
+    function rankVendorsForFunction(f, entries, limit) {
+      if (!entries?.length) return [];
+      const q = [f.title, f.general, f.technical, f.business].filter(Boolean).join(" ");
+      const tokens = expandQueryTokens(tokenizeQuery(q));
+      if (!tokens.length) {
+        return entries.slice(0, limit).map((e) => ({
+          e,
+          score: vendorPrestigeBonus(e.vendor) + Math.min(6, Math.floor(String(e.description || "").length / 200))
+        }));
+      }
+      const scored = entries.map((e) => {
+        const title = `${e.vendor} ${e.product}`;
+        const body = `${e.description || ""} ${e.topFunctions || ""}`;
+        let sc = scoreSearchItem({ title, body }, tokens);
+        sc += vendorPrestigeBonus(e.vendor);
+        return { e, score: sc };
+      });
+      scored.sort((a, b) => b.score - a.score);
+      return scored.slice(0, limit);
+    }
+
+    function aggregateClassSearchTokens(sheetData, cap) {
+      const top = listFromValue(sheetData?.topFunctions);
+      const all = listFromValue(sheetData?.allFunctions);
+      const list = (all.length ? all : top).slice(0, cap);
+      const raw = list.map((f) => [f.title, f.general, f.technical, f.business].filter(Boolean).join(" ")).join(" \n ");
+      return expandQueryTokens(tokenizeQuery(raw));
+    }
+
+    function rankTopVendorsForClass(entries, sheetData, limit) {
+      if (!entries?.length) return [];
+      const toks = aggregateClassSearchTokens(sheetData, 80);
+      if (!toks.length) {
+        return entries.slice(0, limit).map((e) => ({ e, score: vendorPrestigeBonus(e.vendor) }));
+      }
+      const scored = entries.map((e) => {
+        const title = `${e.vendor} ${e.product}`;
+        const body = `${e.description || ""} ${e.topFunctions || ""}`;
+        let sc = scoreSearchItem({ title, body }, toks);
+        sc += vendorPrestigeBonus(e.vendor) + Math.min(8, Math.floor(String(e.description || "").length / 160));
+        return { e, score: sc };
+      });
+      scored.sort((a, b) => b.score - a.score);
+      return scored.slice(0, limit);
+    }
+
     function renderClassRefBlock(ref) {
       const d = ref?.data;
       if (!d) {
@@ -200,7 +369,7 @@
       return `<div class="kb-ref-block"><span class="kb-src-badge ref">Справочник зон/классов</span>${rows.join("")}</div>`;
     }
 
-    function renderFunctionNestedSheets(f) {
+    function renderFunctionNestedSheets(f, classVendorEntries) {
       const g = String(f.general || "").trim();
       const t = String(f.technical || "").trim();
       const b = String(f.business || "").trim();
@@ -223,13 +392,22 @@
       if (!inner.length) {
         inner.push(`<div class="muted" style="margin-top:6px;">Нет текста в колонках листа.</div>`);
       }
+      const ranked = rankVendorsForFunction(f, classVendorEntries || [], 15);
+      const matrixHtml = ranked.length
+        ? `<ol class="kb-matrix-vendors" style="margin:8px 0 0;padding-left:1.1rem;line-height:1.45;font-size:12px;">${ranked
+            .map(
+              ({ e, score }, i) =>
+                `<li style="margin:4px 0;"><span class="pill" style="font-size:9px;">#${i + 1}</span> <b>${esc(e.vendor)}</b> — ${esc(e.product)} <span class="muted">· ${score}</span></li>`
+            )
+            .join("")}</ol>`
+        : `<p class="muted" style="margin-top:6px;">Нет строк каталога для класса (<code>kb/merged/vendors-by-class.json</code>).</p>`;
       inner.push(
-        `<details class="kb-nested"><summary><span class="kb-src-badge matrix">Матрица</span>У кого есть</summary><div class="muted" style="margin-top:6px;">Заполнится из БД: вендоры, ссылки, зрелость.</div></details>`
+        `<details class="kb-nested"><summary><span class="kb-src-badge matrix">Матрица</span>У кого есть</summary><div style="margin-top:4px;">${matrixHtml}</div></details>`
       );
       return inner.join("");
     }
 
-    function renderAllFunctionsHtml(sheetData) {
+    function renderAllFunctionsHtml(sheetData, classVendorEntries) {
       const all = listFromValue(sheetData?.allFunctions);
       const top = listFromValue(sheetData?.topFunctions);
       const list = all.length ? all : top;
@@ -243,10 +421,68 @@
         const catClass = isCat ? " fn-category" : "";
         const pill = isCat ? `<span class="pill">категория · P${pr}</span>` : `<span class="pill">P${pr}</span>`;
         parts.push(
-          `<details id="fn-${i}" class="kb-cascade${catClass}"><summary>${title} ${pill} <span class="kb-cascade-hint">· раскройте блок</span></summary><div style="margin-top:4px;">${renderFunctionNestedSheets(f)}</div></details>`
+          `<details id="fn-${i}" class="kb-cascade${catClass}"><summary>${title} ${pill} <span class="kb-cascade-hint">· раскройте блок</span></summary><div style="margin-top:4px;">${renderFunctionNestedSheets(f, classVendorEntries)}</div></details>`
         );
       });
       return parts.join("");
+    }
+
+    function buildCompetitiveAnalysisTable(theadEl, tbodyEl, data, vendorEntries) {
+      if (!theadEl || !tbodyEl) return;
+      const funcRows = listFromValue(data?.allFunctions?.length ? data.allFunctions : data?.topFunctions).filter(
+        (f) => !String(f.type || "").toLowerCase().includes("категор")
+      );
+      const sample = funcRows.slice(0, 40);
+      if (!sample.length) {
+        theadEl.innerHTML = "";
+        tbodyEl.innerHTML = `<tr><td colspan="99" class="muted">Нет строк функций для таблицы.</td></tr>`;
+        return;
+      }
+      const topRanked = rankTopVendorsForClass(vendorEntries, data, 10);
+      if (!topRanked.length) {
+        theadEl.innerHTML = `<tr><th>Функция / критерий</th><th>Наш статус</th><th colspan="99">Нет каталога вендоров для класса</th></tr>`;
+        tbodyEl.innerHTML = sample
+          .map((f) => `<tr><td>${esc(f.title)}</td><td>—</td><td class="muted" colspan="99">Сгенерируйте kb/merged/vendors-by-class.json</td></tr>`)
+          .join("");
+        return;
+      }
+      const vendors = topRanked.map((x) => x.e);
+      const headCells = vendors
+        .map((e, vix) => {
+          const short = `${e.vendor} — ${e.product}`.slice(0, 72) + (String(`${e.vendor} — ${e.product}`).length > 72 ? "…" : "");
+          return `<th scope="col" class="ca-vendor-head" data-vix="${vix}" title="${esc(e.vendor + " — " + e.product)}">${esc(short)}</th>`;
+        })
+        .join("");
+      theadEl.innerHTML = `<tr><th scope="col">Функция / критерий</th><th scope="col">Наш статус</th>${headCells}<th scope="col">Комментарий / ссылка</th></tr>`;
+      tbodyEl.innerHTML = sample
+        .map((f) => {
+          const cells = vendors
+            .map((e, vix) => {
+              const q = [f.title, f.general, f.technical, f.business].filter(Boolean).join(" ");
+              const tokens = expandQueryTokens(tokenizeQuery(q));
+              const title = `${e.vendor} ${e.product}`;
+              const body = `${e.description || ""} ${e.topFunctions || ""}`;
+              const sc = tokens.length ? scoreSearchItem({ title, body }, tokens) + vendorPrestigeBonus(e.vendor) : vendorPrestigeBonus(e.vendor);
+              const show = sc > 0 ? String(Math.round(sc)) : "·";
+              return `<td class="ca-score ca-vendor-cell" data-vix="${vix}">${esc(show)}</td>`;
+            })
+            .join("");
+          return `<tr><td>${esc(f.title)}</td><td>—</td>${cells}<td class="muted">Клик по заголовку вендора подсвечивает колонку</td></tr>`;
+        })
+        .join("");
+    }
+
+    function wireCaColumnHighlight(tableEl) {
+      if (!tableEl) return;
+      tableEl.addEventListener("click", (ev) => {
+        const th = ev.target.closest("th.ca-vendor-head");
+        if (!th || !tableEl.contains(th)) return;
+        const vix = th.dataset.vix;
+        const turnOn = !th.classList.contains("is-on");
+        tableEl.querySelectorAll(".ca-vendor-head, .ca-vendor-cell").forEach((el) => {
+          if (el.dataset.vix === vix) el.classList.toggle("is-on", turnOn);
+        });
+      });
     }
 
     function buildTocFnLinks(sheetData) {
@@ -300,25 +536,15 @@
         await ensureFullSheet(sheet);
         loadEl.style.display = "none";
       }
-      const data = sheet?.data;
-      document.getElementById("functionsBlock").innerHTML = renderAllFunctionsHtml(data);
+      const cat = await ensureVendorsCatalogDetail();
+      const vendorEntries = catalogEntriesForDetail(cat, ref, sheet, label);
+      document.getElementById("functionsBlock").innerHTML = renderAllFunctionsHtml(data, vendorEntries);
       buildTocFnLinks(data);
 
+      const thead = document.getElementById("caTableHead");
       const tbody = document.getElementById("caTableBody");
-      const funcRows = listFromValue(data?.allFunctions?.length ? data.allFunctions : data?.topFunctions).filter(
-        (f) => !String(f.type || "").toLowerCase().includes("категор")
-      );
-      const sample = funcRows.slice(0, 25);
-      if (!sample.length) {
-        tbody.innerHTML = `<tr><td colspan="5" class="muted">Нет строк функций для таблицы.</td></tr>`;
-      } else {
-        tbody.innerHTML = sample
-          .map(
-            (f) =>
-              `<tr><td>${esc(f.title)}</td><td>—</td><td>—</td><td>—</td><td class="muted">Добавьте ссылки на документацию</td></tr>`
-          )
-          .join("");
-      }
+      buildCompetitiveAnalysisTable(thead, tbody, data, vendorEntries);
+      wireCaColumnHighlight(document.getElementById("caCompTable"));
     })();
   </script>
 </body>

@@ -219,6 +219,9 @@
       margin-top: 8px;
     }
     .kb-edge-corpus .kb-src-badge { background: #ffedd5; color: #9a3412; }
+    .kb-matrix-vendors { margin: 8px 0 0; padding-left: 1.1rem; line-height: 1.45; font-size: 12px; }
+    .kb-matrix-vendors li { margin: 4px 0; }
+    .kb-vendor-layer ol { margin: 0; padding-left: 1.05rem; font-size: 12px; }
 
     .sidebar-view-section { border-bottom: 1px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 4px; }
     .sidebar-view-section h3 { margin: 0 0 6px 0; font-size: 12px; font-weight: 700; color: #0f172a; }
@@ -890,14 +893,166 @@
       return null;
     }
 
-    function renderVendorStub() {
+    let vendorsByClassKbCache;
+
+    function vendorsJsonUrlKb() {
+      try {
+        return new URL("kb/merged/vendors-by-class.json", window.location.href).toString();
+      } catch {
+        return "kb/merged/vendors-by-class.json";
+      }
+    }
+
+    async function ensureVendorsCatalogKb() {
+      if (vendorsByClassKbCache !== undefined) return vendorsByClassKbCache;
+      try {
+        const r = await fetch(vendorsJsonUrlKb(), { cache: "no-cache" });
+        vendorsByClassKbCache = r.ok ? await r.json() : {};
+      } catch {
+        vendorsByClassKbCache = {};
+      }
+      return vendorsByClassKbCache;
+    }
+
+    function catalogEntriesForKbNode(ref, sheet, node) {
+      const cat = vendorsByClassKbCache;
+      if (!cat || typeof cat !== "object") return [];
+      const rawKeys = [ref?.key, sheet?.key, node?.label?.replace(/\n/g, " ")].filter(Boolean);
+      for (const tk of rawKeys) {
+        if (cat[tk]?.length) return cat[tk];
+        const t = prepSearch(tk);
+        for (const k of Object.keys(cat)) {
+          if (prepSearch(k) === t) return cat[k];
+        }
+      }
+      const parts = String(node?.label || "")
+        .split("/")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      for (const part of parts) {
+        const t = prepSearch(part);
+        for (const k of Object.keys(cat)) {
+          if (prepSearch(k) === t) return cat[k];
+        }
+      }
+      const label = prepSearch(node?.label?.replace(/\n/g, " ") || "");
+      let best = [];
+      let bestLen = 0;
+      for (const k of Object.keys(cat)) {
+        const ck = prepSearch(k);
+        if (!ck) continue;
+        if (label.includes(ck) || ck.includes(label)) {
+          if (ck.length >= bestLen) {
+            bestLen = ck.length;
+            best = cat[k] || [];
+          }
+        }
+      }
+      return best;
+    }
+
+    const VENDOR_PRESTIGE_RULES = [
+      [/microsoft|azure/i, 10],
+      [/servicenow/i, 9],
+      [/bmc|remedy|helix/i, 8],
+      [/ibm|maximo/i, 7],
+      [/splunk/i, 6],
+      [/aws|amazon/i, 6],
+      [/google|gcp/i, 5],
+      [/oracle/i, 5],
+      [/sap/i, 5],
+      [/salesforce/i, 4],
+      [/vmware|broadcom/i, 4],
+      [/palo alto|prisma/i, 4],
+      [/flexera/i, 4],
+      [/hashicorp|terraform/i, 3]
+    ];
+
+    function vendorPrestigeBonus(vendor) {
+      const v = String(vendor || "");
+      for (const [re, b] of VENDOR_PRESTIGE_RULES) {
+        if (re.test(v)) return b;
+      }
+      return 0;
+    }
+
+    function rankVendorsForFunction(f, entries, limit) {
+      if (!entries?.length) return [];
+      const q = [f.title, f.general, f.technical, f.business].filter(Boolean).join(" ");
+      const tokens = expandQueryTokens(tokenizeQuery(q));
+      if (!tokens.length) {
+        return entries.slice(0, limit).map((e) => ({
+          e,
+          score: vendorPrestigeBonus(e.vendor) + Math.min(6, Math.floor(String(e.description || "").length / 200))
+        }));
+      }
+      const scored = entries.map((e) => {
+        const title = `${e.vendor} ${e.product}`;
+        const body = `${e.description || ""} ${e.topFunctions || ""}`;
+        let sc = scoreSearchItem({ title, body }, tokens);
+        sc += vendorPrestigeBonus(e.vendor);
+        return { e, score: sc };
+      });
+      scored.sort((a, b) => b.score - a.score);
+      return scored.slice(0, limit);
+    }
+
+    function aggregateClassSearchTokens(sheetData, cap) {
+      const top = listFromValue(sheetData?.topFunctions);
+      const all = listFromValue(sheetData?.allFunctions);
+      const list = (all.length ? all : top).slice(0, cap);
+      const raw = list.map((f) => [f.title, f.general, f.technical, f.business].filter(Boolean).join(" ")).join(" \n ");
+      return expandQueryTokens(tokenizeQuery(raw));
+    }
+
+    function rankTopVendorsForClass(entries, sheetData, limit) {
+      if (!entries?.length) return [];
+      const toks = aggregateClassSearchTokens(sheetData, 60);
+      if (!toks.length) {
+        return entries.slice(0, limit).map((e) => ({ e, score: vendorPrestigeBonus(e.vendor) }));
+      }
+      const scored = entries.map((e) => {
+        const title = `${e.vendor} ${e.product}`;
+        const body = `${e.description || ""} ${e.topFunctions || ""}`;
+        let sc = scoreSearchItem({ title, body }, toks);
+        sc += vendorPrestigeBonus(e.vendor) + Math.min(8, Math.floor(String(e.description || "").length / 160));
+        return { e, score: sc };
+      });
+      scored.sort((a, b) => b.score - a.score);
+      return scored.slice(0, limit);
+    }
+
+    function renderKbVendorLayer(entries, sheetData, node) {
+      const labelPlain = esc(node.label.replace(/\n/g, " "));
+      const ranked = rankTopVendorsForClass(entries, sheetData, 10);
+      if (!ranked.length) {
+        return `<div class="kb-vendor-layer"><h4>Vendor layer</h4><p class="muted-text">Для «${labelPlain}» нет строк в <code>kb/merged/vendors-by-class.json</code>. Выполните <code>npm run merge-landscape</code> и откройте приложение по http(s), не file://.</p></div>`;
+      }
+      const ol = ranked
+        .map(
+          ({ e, score }, i) =>
+            `<li style="margin:6px 0;line-height:1.4;"><span class="pill" style="font-size:9px;">#${i + 1}</span> <b>${esc(e.vendor)}</b> — ${esc(e.product)} <span class="muted-text">· интегр. скор ${score}</span></li>`
+        )
+        .join("");
+      return `<div class="kb-vendor-layer"><h4>Vendor layer · топ-10 для класса</h4><p class="muted-text" style="margin:0 0 8px;">Ранжирование по пересечению с текстом функций листа (с учётом тезауруса и бонуса «зрелости» вендора).</p><ol>${ol}</ol></div>`;
+    }
+
+    function renderVendorStub(hint) {
+      const zone =
+        hint === "zone"
+          ? `<p class="muted-text" style="margin-top:6px;">Vendor layer строится по выбранному <b>классу</b> на схеме: топ продуктов из каталога и матрица «у кого есть» внутри каждой функции.</p>`
+          : "";
+      const edge =
+        hint === "edge"
+          ? `<p class="muted-text" style="margin-top:6px;">Для связи показаны поток и исследование. Матрица вендоров доступна в карточке класса.</p>`
+          : "";
       vendorCard.innerHTML = `
-        <h4>Vendor Layer (каркас)</h4>
-        <div class="muted-text">Следующий этап: матрица вендоров по функциям (Да/Нет/Частично/Неизвестно) + proof links.</div>
+        <h4>Vendor layer</h4>
+        <div class="muted-text">Выберите класс на схеме — справа появится топ-10 вендоров/продуктов и ранжирование по каждой функции.</div>
+        ${zone}${edge}
         <div style="margin-top:6px;">
-          <span class="pill">vendor matrix</span>
-          <span class="pill">proof links</span>
-          <span class="pill">confidence score</span>
+          <span class="pill">kb/merged/vendors-by-class.json</span>
+          <span class="pill">матрица по функции</span>
         </div>
       `;
     }
@@ -934,7 +1089,7 @@
       if (knowledgeOpen) void renderEntityCard();
     }
 
-    function renderFunctionNestedSheets(f) {
+    function renderFunctionNestedSheets(f, classVendorEntries) {
       const g = String(f.general || "").trim();
       const t = String(f.technical || "").trim();
       const b = String(f.business || "").trim();
@@ -957,13 +1112,22 @@
       if (!inner.length) {
         inner.push(`<div class="muted-text" style="margin-top:6px;">В строке листа нет заполненных колонок «Общая / Техническая / Бизнес часть».</div>`);
       }
+      const ranked = rankVendorsForFunction(f, classVendorEntries || [], 15);
+      const matrixHtml = ranked.length
+        ? `<ol class="kb-matrix-vendors">${ranked
+            .map(
+              ({ e, score }, i) =>
+                `<li><span class="pill" style="font-size:9px;">#${i + 1}</span> <b>${esc(e.vendor)}</b> — ${esc(e.product)} <span class="muted-text">· скор ${score}</span></li>`
+            )
+            .join("")}</ol>`
+        : `<p class="muted-text" style="margin-top:6px;line-height:1.45;font-size:12px;">Нет строк каталога для этого класса в <code>kb/merged/vendors-by-class.json</code> — выполните <code>npm run merge-landscape</code>.</p>`;
       inner.push(
-        `<details class="kb-nested"><summary><span class="kb-src-badge matrix">Матрица</span>У кого есть</summary><div class="muted-text" style="margin-top:6px;line-height:1.45;font-size:12px;">После подключения БД: «есть / нет / частично», ссылки на первоисточники (документация вендора, отчёты) и сопоставление с вашим портфелем.</div></details>`
+        `<details class="kb-nested"><summary><span class="kb-src-badge matrix">Матрица</span>У кого есть</summary><div style="margin-top:4px;">${matrixHtml}</div></details>`
       );
       return inner.join("");
     }
 
-    function renderClassFunctionsHtml(sheetData) {
+    function renderClassFunctionsHtml(sheetData, classVendorEntries) {
       const top = listFromValue(sheetData?.topFunctions);
       const all = listFromValue(sheetData?.allFunctions);
       const list = top.length ? top : all;
@@ -977,7 +1141,7 @@
         const catClass = isCat ? " fn-category" : "";
         const pill = isCat ? `<span class="pill">категория · P${pr}</span>` : `<span class="pill">P${pr}</span>`;
         parts.push(
-          `<details class="kb-cascade${catClass}"><summary>${title} ${pill} <span class="kb-cascade-hint">· раскройте блок</span></summary><div class="kb-source-sheet-wrap" style="margin-top:4px;">${renderFunctionNestedSheets(f)}</div></details>`
+          `<details class="kb-cascade${catClass}"><summary>${title} ${pill} <span class="kb-cascade-hint">· раскройте блок</span></summary><div class="kb-source-sheet-wrap" style="margin-top:4px;">${renderFunctionNestedSheets(f, classVendorEntries)}</div></details>`
         );
       }
       return parts.join("");
@@ -1017,9 +1181,11 @@
         if (!node) return;
         entityCard.innerHTML = `<p class="muted-text">Загрузка листа класса…</p>`;
         await ensureLazyForNode(node);
+        await ensureVendorsCatalogKb();
         const ref = classRefByNode(node);
         const sheet = classSheetByNode(node);
-        const fnHtml = renderClassFunctionsHtml(sheet?.data);
+        const classVendorEntries = catalogEntriesForKbNode(ref, sheet, node);
+        const fnHtml = renderClassFunctionsHtml(sheet?.data, classVendorEntries);
         const detailHref = classDetailPageUrl(node, sheet);
         entityCard.innerHTML = `
           <div class="kb-card kb-card--class${node.hub ? " kb-card--hub" : ""}">
@@ -1033,6 +1199,7 @@
             <div class="kb-sec"><div class="kb-sec-kicker">Функции и категории (лист Excel)</div>${fnHtml}</div>
           </div>
         `;
+        if (vendorCard) vendorCard.innerHTML = renderKbVendorLayer(classVendorEntries, sheet?.data, node);
         return;
       }
 
@@ -1040,6 +1207,7 @@
         const zone = zoneById(selectedZoneId);
         const kb = zoneKbById(selectedZoneId);
         if (!zone) return;
+        if (vendorCard) renderVendorStub("zone");
         entityCard.innerHTML = `
           <div class="kb-card kb-card--zone">
             <h4>Зона: ${esc(zone.title)}</h4>
@@ -1063,6 +1231,7 @@
       if (selectedEdgeId) {
         const e = edgeById(selectedEdgeId);
         if (!e) return;
+        if (vendorCard) renderVendorStub("edge");
         entityCard.innerHTML = `<p class="muted-text">Загрузка материалов для связи…</p>`;
         await ensureResearchCorpus();
         await ensureLazyForEdgeEndpoints(e);
@@ -1098,6 +1267,7 @@
         return;
       }
 
+      if (vendorCard) renderVendorStub();
       entityCard.innerHTML = `
         <h4>Подсказка</h4>
         <div>Выделите зону, класс или стрелку на схеме. Нажмите «Да» внизу экрана, чтобы открыть базу знаний с описанием.</div>

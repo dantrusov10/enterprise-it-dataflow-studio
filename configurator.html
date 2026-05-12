@@ -81,9 +81,20 @@
     .cfg-st-no { color: #b91c1c; font-weight: 600; }
     .cfg-pct { font-size: 22px; font-weight: 800; color: #1d4ed8; margin: 8px 0 4px; }
     .cfg-composite { font-size: 12px; line-height: 1.45; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
+    .cfg-results-wrap { position: relative; min-height: 48px; }
+    .cfg-loader {
+      display: flex; align-items: center; gap: 10px; padding: 14px 16px; margin-top: 8px;
+      background: #fff; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 13px; color: #334155;
+    }
+    .cfg-loader.cfg-hidden { display: none; }
+    .cfg-spinner {
+      width: 22px; height: 22px; border-radius: 999px; border: 3px solid #e2e8f0; border-top-color: #1d4ed8;
+      animation: cfg-spin 0.75s linear infinite; flex-shrink: 0;
+    }
+    @keyframes cfg-spin { to { transform: rotate(360deg); } }
   </style>
   <script src="./enterprise-it-dataflow-knowledge.js?v=kb20260208"></script>
-  <script src="./configurator-page.js?v=3"></script>
+  <script src="./configurator-page.js?v=4"></script>
 </head>
 <body>
   <div class="page">
@@ -138,7 +149,13 @@
 
     <section>
       <h2 style="font-size:15px;margin:0 0 10px;">Результаты</h2>
-      <div id="cfgResults"></div>
+      <div class="cfg-results-wrap">
+        <div id="cfgLoader" class="cfg-loader cfg-hidden" role="status" aria-live="polite">
+          <div class="cfg-spinner" aria-hidden="true"></div>
+          <span id="cfgLoaderText">Подбор…</span>
+        </div>
+        <div id="cfgResults"></div>
+      </div>
     </section>
 
     <section class="panel" id="cfgVendorPanel">
@@ -151,7 +168,7 @@
       <div id="cfgVendorDetail"></div>
     </section>
 
-    <span class="badge">Конфигуратор v3 · классы + бандл</span>
+    <span class="badge">Конфигуратор v4 · лоадер + бандл</span>
   </div>
 </body>
 </html>

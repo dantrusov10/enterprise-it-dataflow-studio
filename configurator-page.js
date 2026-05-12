@@ -407,12 +407,20 @@
     return flat.slice(0, 12).join(", ").slice(0, 400);
   }
 
-  let vendorsByClassCache = null;
+  let vendorsByClassCache;
+
+  function vendorsJsonUrl() {
+    try {
+      return new URL("kb/merged/vendors-by-class.json", window.location.href).toString();
+    } catch {
+      return "kb/merged/vendors-by-class.json";
+    }
+  }
 
   async function loadVendorsByClassCatalog() {
-    if (vendorsByClassCache !== null) return vendorsByClassCache;
+    if (vendorsByClassCache !== undefined) return vendorsByClassCache;
     try {
-      const r = await fetch("kb/merged/vendors-by-class.json", { cache: "force-cache" });
+      const r = await fetch(vendorsJsonUrl(), { cache: "no-cache" });
       vendorsByClassCache = r.ok ? await r.json() : {};
     } catch {
       vendorsByClassCache = {};
@@ -426,6 +434,16 @@
     for (const tk of rawKeys) {
       if (cat[tk]?.length) return cat[tk];
       const t = prepSearch(tk);
+      for (const k of Object.keys(cat)) {
+        if (prepSearch(k) === t) return cat[k];
+      }
+    }
+    const parts = String(row.node?.label || "")
+      .split("/")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const part of parts) {
+      const t = prepSearch(part);
       for (const k of Object.keys(cat)) {
         if (prepSearch(k) === t) return cat[k];
       }
@@ -447,10 +465,11 @@
   }
 
   async function buildBundleHtmlFromTopClasses(top, tokens) {
-    const cat = await loadVendorsByClassCatalog();
-    if (!cat || !Object.keys(cat).length) {
-      return `<div class="cfg-subh">Подобранный бандл (продукты)</div><p class="muted">Нет файла <code>kb/merged/vendors-by-class.json</code>. В корне репозитория выполните <code>npm run merge-landscape</code> (нужны три исходных xlsx в Downloads) и опубликуйте папку <code>kb/merged/</code> рядом с конфигуратором.</p>`;
-    }
+    try {
+      const cat = await loadVendorsByClassCatalog();
+      if (!cat || !Object.keys(cat).length) {
+        return `<div class="cfg-subh">Подобранный бандл (продукты)</div><p class="muted">Нет данных каталога (<code>kb/merged/vendors-by-class.json</code>). Запустите <code>npm run merge-landscape</code> и откройте страницу с локального/деплой-сервера (не file://).</p>`;
+      }
     const rows = [];
     for (const row of top.slice(0, 10)) {
       const entries = vendorCatalogEntriesForRow(row, cat);
@@ -492,6 +511,10 @@
       )
       .join("");
     return `<div class="cfg-subh">Подобранный бандл (продукт по каждому классу из топа)</div><p class="muted" style="margin-bottom:8px;">${hint}</p><table class="cfg-vt" aria-label="Бандл"><thead><tr><th>Класс</th><th>Продукт</th><th>Скор</th></tr></thead><tbody>${tr}</tbody></table>`;
+    } catch (err) {
+      console.error(err);
+      return `<div class="cfg-subh">Бандл</div><p class="muted">Ошибка при подборе бандла. Проверьте консоль и доступность <code>kb/merged/vendors-by-class.json</code>.</p>`;
+    }
   }
 
   function isFreeMode() {
@@ -933,13 +956,34 @@
     renderVendorDetail();
   }
 
+  function setCfgLoading(on, text) {
+    const el = document.getElementById("cfgLoader");
+    const tx = document.getElementById("cfgLoaderText");
+    const btns = [document.getElementById("cfgRunClassesBtn"), document.getElementById("cfgRunBundleBtn")];
+    if (tx && text) tx.textContent = text;
+    if (el) el.classList.toggle("cfg-hidden", !on);
+    btns.forEach((b) => {
+      if (b) b.disabled = !!on;
+    });
+  }
+
   async function runConfigurator(outputKind) {
     const statusEl = document.getElementById("cfgStatus");
     const resultsEl = document.getElementById("cfgResults");
     if (!resultsEl) return;
     const kind = outputKind === "bundle" ? "bundle" : "classes";
-    if (isFreeMode()) await runModeFree(statusEl, resultsEl, kind);
-    else await runModeZones(statusEl, resultsEl, kind);
+    setCfgLoading(true, kind === "bundle" ? "Подбор бандла…" : "Подбор классов…");
+    resultsEl.innerHTML = "";
+    try {
+      if (isFreeMode()) await runModeFree(statusEl, resultsEl, kind);
+      else await runModeZones(statusEl, resultsEl, kind);
+    } catch (e) {
+      console.error(e);
+      if (statusEl) statusEl.textContent = "Ошибка подбора — см. консоль браузера.";
+      resultsEl.innerHTML = `<p class="muted">Сбой выполнения. Убедитесь, что страница открыта через http(s), а не file://.</p>`;
+    } finally {
+      setCfgLoading(false, "Подбор…");
+    }
   }
 
   function syncModeUi() {
