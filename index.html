@@ -177,6 +177,10 @@
       padding: 6px 0 4px;
     }
     details.kb-cascade.fn-category { background: #f1f5f9; border-color: #cbd5e1; }
+    .kb-pm-fn-block { margin-top: 10px; padding: 8px 0 2px; border-radius: 8px; }
+    .kb-pm-fn-block.kb-pm-fn-yes { border-left: 3px solid #16a34a; padding-left: 10px; margin-left: -2px; background: linear-gradient(90deg, rgba(220,252,231,0.5) 0%, transparent 12px); }
+    .kb-pm-fn-block.kb-pm-fn-no { border-left: 3px solid #dc2626; padding-left: 10px; margin-left: -2px; background: linear-gradient(90deg, rgba(254,226,226,0.45) 0%, transparent 12px); }
+    .kb-pm-fn-block.kb-pm-fn-cat { border-left: 3px solid #64748b; padding-left: 10px; margin-left: -2px; }
     details.kb-cascade > summary .kb-cascade-hint {
       font-weight: 400;
       color: #64748b;
@@ -365,7 +369,7 @@
           <button type="button" class="btn" id="kbGapsRefreshBtn" style="margin-bottom:6px;">Обновить отчёт</button>
           <div id="kbGapsReport" class="kb-gaps-report muted-text" style="font-size:11px;line-height:1.4;max-height:280px;overflow:auto;"></div>
         </div>
-        <span class="badge">v15 projectMap: мосты + прямой/косвенный</span>
+        <span class="badge">v16 projectMap: класс да/нет по вендору</span>
       </div>
     </aside>
     <div class="workspace-wrap">
@@ -1030,6 +1034,144 @@
       return scored.slice(0, limit);
     }
 
+    /** Как в конфигураторе: относительный статус по скору токенов функции ↔ текст продукта в каталоге. */
+    function productStatusFromRelative(sc, maxSc) {
+      if (maxSc < 1) return sc >= 2 ? "part" : sc >= 1 ? "part" : "unk";
+      const r = sc / maxSc;
+      if (sc >= 9 && r >= 0.82) return "yes";
+      if (r >= 0.35 || sc >= 5) return "part";
+      if (sc >= 2) return "part";
+      return "no";
+    }
+
+    function strictTokensFromSheetFunction(f) {
+      const body = [f.title, f.general, f.technical, f.business].filter(Boolean).join(" ");
+      const s = `${f.title || ""} ${body}`;
+      return prepSearch(s)
+        .split(/[^a-z0-9а-яіїєґ]+/i)
+        .filter((t) => t.length >= 3)
+        .slice(0, 36);
+    }
+
+    function scoreFunctionAgainstCatalogEntry(f, entry) {
+      const toks = strictTokensFromSheetFunction(f);
+      if (!toks.length) return 0;
+      const title = `${entry.vendor || ""} ${entry.product || ""}`;
+      const body = `${entry.description || ""} ${entry.topFunctions || ""}`;
+      return scoreSearchItem({ title, body }, toks);
+    }
+
+    function catalogEntryMatchPick(entries, pick) {
+      if (!entries?.length || !pick) return null;
+      const pv = prepSearch(pick.vendor);
+      const pp = prepSearch(pick.product);
+      const sameVendor = entries.filter((e) => prepSearch(e.vendor) === pv);
+      if (!sameVendor.length) return null;
+      const exact = sameVendor.find((e) => prepSearch(e.product) === pp);
+      if (exact) return exact;
+      if (pp) {
+        const fuzzy = sameVendor.find(
+          (e) => prepSearch(e.product).includes(pp) || pp.includes(prepSearch(e.product))
+        );
+        if (fuzzy) return fuzzy;
+      }
+      return sameVendor[0];
+    }
+
+    function collectProjectMapEntryPairs(allEntries, picks) {
+      const out = [];
+      for (const p of picks || []) {
+        const e = catalogEntryMatchPick(allEntries, p);
+        if (e) out.push({ pick: p, entry: e });
+      }
+      return out;
+    }
+
+    function functionFitStatusForProjectMap(f, entryPairs) {
+      if (!entryPairs.length) return "unk";
+      let bestSc = 0;
+      for (const { entry } of entryPairs) {
+        const sc = scoreFunctionAgainstCatalogEntry(f, entry);
+        if (sc > bestSc) bestSc = sc;
+      }
+      return productStatusFromRelative(bestSc, bestSc);
+    }
+
+    function projectMapStatusPillRu(st) {
+      if (st === "yes") {
+        return `<span class="pill" style="background:#dcfce7;border-color:#22c55e;color:#166534;font-size:10px;">выбранное решение: да</span>`;
+      }
+      if (st === "part") {
+        return `<span class="pill" style="background:#fef9c3;border-color:#eab308;color:#854d0e;font-size:10px;">выбранное решение: частично</span>`;
+      }
+      if (st === "unk") {
+        return `<span class="pill" style="background:#f1f5f9;border-color:#94a3b8;color:#475569;font-size:10px;">нет токенов для сопоставления</span>`;
+      }
+      return `<span class="pill" style="background:#fee2e2;border-color:#f87171;color:#991b1b;font-size:10px;">выбранное решение: нет</span>`;
+    }
+
+    function renderOneFunctionCascadeWithPills(f, matrixEntries, extraPillsHtml) {
+      const typ = String(f.type || "").toLowerCase();
+      const pr = f.priority ?? "?";
+      const title = esc(f.title || "без названия");
+      const isCat = typ.includes("категор");
+      const catClass = isCat ? " fn-category" : "";
+      const pill = isCat ? `<span class="pill">категория · P${pr}</span>` : `<span class="pill">P${pr}</span>`;
+      const pills = `${pill}${extraPillsHtml || ""}`;
+      return `<details class="kb-cascade${catClass}"><summary>${title} ${pills} <span class="kb-cascade-hint">· раскройте блок</span></summary><div class="kb-source-sheet-wrap" style="margin-top:4px;">${renderFunctionNestedSheets(f, matrixEntries || [])}</div></details>`;
+    }
+
+    /** Режим карты проекта: две колонки по покрытию выбранных продуктов; внутри — тот же каскад и матрица по отфильтрованным вендорам. */
+    function renderClassFunctionsProjectSplit(sheetData, allEntries, matrixEntries, picks) {
+      const top = listFromValue(sheetData?.topFunctions);
+      const all = listFromValue(sheetData?.allFunctions);
+      const list = top.length ? top : all;
+      if (!list.length) return '<div class="muted-text">Нет функций в загруженном листе.</div>';
+      const pairs = collectProjectMapEntryPairs(allEntries, picks);
+      const pickLine = (picks || []).map((p) => `<b>${esc(p.vendor)}</b> — ${esc(p.product)}`).join("; ");
+      if (!pairs.length) {
+        const warn = picks?.length
+          ? `<p class="muted-text" style="line-height:1.45;margin:0 0 8px;">Не удалось сопоставить выбранные продукты со строками каталога для этого класса — показываем общий список без разделения «есть / нет».</p>`
+          : "";
+        return `${warn}<p class="muted-text" style="line-height:1.45;margin:0 0 8px;">Выбранные решения: ${pickLine || "—"}</p>${renderClassFunctionsHtml(sheetData, matrixEntries)}`;
+      }
+      const cats = [];
+      const bodies = [];
+      for (const f of list) {
+        const typ = String(f.type || "").toLowerCase();
+        if (typ.includes("категор")) cats.push(f);
+        else bodies.push(f);
+      }
+      const has = [];
+      const missing = [];
+      for (const f of bodies) {
+        const st = functionFitStatusForProjectMap(f, pairs);
+        if (st === "yes" || st === "part") has.push({ f, st });
+        else missing.push({ f, st });
+      }
+      const catBlock = cats.length
+        ? `<div class="kb-pm-fn-block kb-pm-fn-cat"><div class="kb-sec-kicker" style="margin-bottom:6px;">Структура листа · категории</div>${cats.map((f) => renderOneFunctionCascadeWithPills(f, matrixEntries, "")).join("")}</div>`
+        : "";
+      const hasBlock =
+        `<div class="kb-pm-fn-block kb-pm-fn-yes"><div class="kb-sec-kicker" style="margin-bottom:6px;">Покрывается выбранным решением</div>` +
+        (has.length
+          ? has.map(({ f, st }) => renderOneFunctionCascadeWithPills(f, matrixEntries, projectMapStatusPillRu(st))).join("")
+          : `<p class="muted-text" style="line-height:1.4;">—</p>`) +
+        `</div>`;
+      const missBlock =
+        `<div class="kb-pm-fn-block kb-pm-fn-no"><div class="kb-sec-kicker" style="margin-bottom:6px;">Нет или недостаточно данных по выбранному вендору</div>` +
+        (missing.length
+          ? missing.map(({ f, st }) => renderOneFunctionCascadeWithPills(f, matrixEntries, projectMapStatusPillRu(st))).join("")
+          : `<p class="muted-text" style="line-height:1.4;">—</p>`) +
+        `</div>`;
+      return `
+        <p class="muted-text" style="line-height:1.45;margin:0 0 8px;font-size:11px;">Выбранные продукты: ${pickLine}. Пометки «да / частично / нет» считаются так же, как матрица в конфигураторе: токены строки функции сопоставляются с описанием и <code>topFunctions</code> продукта в <code>kb/merged/vendors-by-class.json</code> (лучший скор среди выбранных позиций по классу).</p>
+        ${catBlock}
+        ${hasBlock}
+        ${missBlock}
+      `;
+    }
+
     function aggregateClassSearchTokens(sheetData, cap) {
       const top = listFromValue(sheetData?.topFunctions);
       const all = listFromValue(sheetData?.allFunctions);
@@ -1221,7 +1363,9 @@
         await ensureVendorsCatalogKb();
         const ref = classRefByNode(node);
         const sheet = classSheetByNode(node);
-        let classVendorEntries = catalogEntriesForKbNode(ref, sheet, node);
+        const allCatalogEntries = catalogEntriesForKbNode(ref, sheet, node);
+        let classVendorEntries = allCatalogEntries;
+        const picksHere = (window.PROJECT_MAP_CTX?.picks || []).filter((p) => p.nodeId === node.id);
         if (window.PROJECT_MAP_CTX?.active) {
           const allow = window.PROJECT_MAP_CTX.vendorsByNode?.[node.id];
           if (allow?.length) {
@@ -1229,7 +1373,10 @@
             classVendorEntries = classVendorEntries.filter((e) => low.has(String(e.vendor || "").trim().toLowerCase()));
           }
         }
-        const fnHtml = renderClassFunctionsHtml(sheet?.data, classVendorEntries);
+        const fnHtml =
+          window.PROJECT_MAP_CTX?.active && picksHere.length
+            ? renderClassFunctionsProjectSplit(sheet?.data, allCatalogEntries, classVendorEntries, picksHere)
+            : renderClassFunctionsHtml(sheet?.data, classVendorEntries);
         const detailHref = classDetailPageUrl(node, sheet);
         entityCard.innerHTML = `
           <div class="kb-card kb-card--class${node.hub ? " kb-card--hub" : ""}">
@@ -1240,7 +1387,7 @@
               ${sheet?.data?.functionCount != null ? `<span class="muted-text">в листе: ${sheet.data.functionCount} записей · здесь топ по приоритету</span>` : ""}
             </div>
             <div class="kb-sec"><div class="kb-sec-kicker">Справочник (единый формат для классов)</div>${renderClassRefBlock(ref)}</div>
-            <div class="kb-sec"><div class="kb-sec-kicker">Функции и категории (лист Excel)</div>${fnHtml}</div>
+            <div class="kb-sec"><div class="kb-sec-kicker">${window.PROJECT_MAP_CTX?.active && picksHere.length ? "Функции листа · по выбранному решению (да / нет)" : "Функции и категории (лист Excel)"}</div>${fnHtml}</div>
           </div>
         `;
         if (vendorCard) vendorCard.innerHTML = renderKbVendorLayer(classVendorEntries, sheet?.data, node);
