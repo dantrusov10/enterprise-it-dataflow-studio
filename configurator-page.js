@@ -801,6 +801,23 @@
         focusNodeIds.push(nid);
       }
     }
+    if (!focusNodeIds.length && lastRunCtx.topClasses?.length) {
+      for (const x of entries) {
+        const want = prepSearch(x.classLabel || "");
+        if (!want) continue;
+        for (const row of lastRunCtx.topClasses) {
+          const lab = prepSearch(row.classRefKey || row.sheetKey || row.node.label.replace(/\n/g, " "));
+          if (!lab) continue;
+          if (lab === want || lab.includes(want) || want.includes(lab)) {
+            if (!seen.has(row.node.id)) {
+              seen.add(row.node.id);
+              focusNodeIds.push(row.node.id);
+            }
+            break;
+          }
+        }
+      }
+    }
     if (!focusNodeIds.length) return null;
     const picks = entries.map((x) => ({
       key: x.key,
@@ -832,10 +849,17 @@
     try {
       localStorage.setItem(PROJECT_MAP_STORAGE_KEY, JSON.stringify(data));
     } catch (e) {
-      console.warn(e);
-      return;
+      console.warn("projectMap localStorage", e);
     }
-    window.open("index.html?projectMap=1", "_blank", "noopener,noreferrer");
+    const u = new URL("index.html", window.location.href);
+    u.searchParams.set("projectMap", "1");
+    try {
+      const json = JSON.stringify(data);
+      u.hash = "pm=" + encodeURIComponent(btoa(unescape(encodeURIComponent(json))));
+    } catch (e) {
+      console.warn("projectMap hash", e);
+    }
+    window.open(u.href, "_blank", "noopener,noreferrer");
   }
 
   function renderOutcomeSummary() {
@@ -855,7 +879,7 @@
     const n = picked.length;
     const canMap = !!buildProjectMapPayload();
     el.innerHTML = `<div class="cfg-subh">Итоговый набор</div>
-      <p class="muted" style="margin:0 0 10px;">Выбрано продуктов в каталоге: <b>${n}</b>. На отдельной вкладке откроется схема только с классами и связями, которые относятся к этому выбору (прямые и косвенные через граф). На карте класс → база знаний с фильтром по выбранным вендорам для этого класса; на схеме можно дописать инфраструктуру клиента.</p>
+      <p class="muted" style="margin:0 0 10px;">Выбрано продуктов в каталоге: <b>${n}</b>. Откроется вкладка со схемой: <b>только классы из выбора</b> и связи между ними (без «раздувания» через весь граф). Данные передаются в localStorage и дублируются в адресе вкладки. На карте класс → база с фильтром по вендорам.</p>
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
         <button type="button" class="btn btn-primary" id="cfgOpenProjectMapBtn"${canMap ? "" : " disabled"}>Визуализировать на схеме</button>
         ${canMap ? "" : `<span class="muted" style="font-size:11px;">Нет привязки к узлам схемы — выполните подбор ещё раз.</span>`}

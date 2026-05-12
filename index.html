@@ -360,7 +360,7 @@
           <button type="button" class="btn" id="kbGapsRefreshBtn" style="margin-bottom:6px;">Обновить отчёт</button>
           <div id="kbGapsReport" class="kb-gaps-report muted-text" style="font-size:11px;line-height:1.4;max-height:280px;overflow:auto;"></div>
         </div>
-        <span class="badge">v13 projectMap через localStorage</span>
+        <span class="badge">v14 projectMap: hash + индуцированный граф</span>
       </div>
     </aside>
     <div class="workspace-wrap">
@@ -1840,46 +1840,35 @@
 
     const PROJECT_MAP_STORAGE_KEY = "enterprise_it_project_map_v1";
 
-    function reachableNodesMultiSource(edges, seeds) {
-      const adj = new Map();
-      for (const e of edges) {
-        if (e.type === "zone") continue;
-        const a = e.from;
-        const b = e.to;
-        if (!a || !b || !String(a).startsWith("n-") || !String(b).startsWith("n-")) continue;
-        if (!adj.has(a)) adj.set(a, []);
-        if (!adj.has(b)) adj.set(b, []);
-        adj.get(a).push(b);
-        adj.get(b).push(a);
+    function parseProjectMapHandoff() {
+      try {
+        const ls = localStorage.getItem(PROJECT_MAP_STORAGE_KEY);
+        if (ls) return JSON.parse(ls);
+      } catch {
+        /* ignore */
       }
-      const seen = new Set(seeds);
-      const stack = [...seeds];
-      while (stack.length) {
-        const u = stack.pop();
-        for (const v of adj.get(u) || []) {
-          if (!seen.has(v)) {
-            seen.add(v);
-            stack.push(v);
-          }
+      const h = (location.hash || "").replace(/^#/, "");
+      if (h.startsWith("pm=")) {
+        try {
+          const b64 = decodeURIComponent(h.slice(3));
+          const json = decodeURIComponent(escape(atob(b64)));
+          return JSON.parse(json);
+        } catch {
+          return null;
         }
       }
-      return seen;
+      return null;
     }
 
     function tryApplyProjectMapFromStorage() {
       const p = new URLSearchParams(location.search);
       if (p.get("projectMap") !== "1") return;
-      const raw = localStorage.getItem(PROJECT_MAP_STORAGE_KEY);
-      if (!raw) return;
-      let data;
-      try {
-        data = JSON.parse(raw);
-      } catch {
-        return;
-      }
-      const seeds = Array.from(new Set((data.focusNodeIds || []).filter((id) => nodeById(id))));
-      if (!seeds.length) return;
-      const R = reachableNodesMultiSource(state.edges, seeds);
+      const data = parseProjectMapHandoff();
+      if (!data) return;
+      const seedArr = Array.from(new Set((data.focusNodeIds || []).filter((id) => nodeById(id))));
+      if (!seedArr.length) return;
+      /** Только выбранные классы и рёбра между ними (без «раздувания» через CMDB и весь граф). */
+      const R = new Set(seedArr);
       const zoneIds = new Set();
       for (const nid of R) {
         const n = nodeById(nid);
@@ -1909,6 +1898,11 @@
         pmHost.innerHTML = buildProjectMapSidebarHtml();
         wireProjectMapSidebar();
       }
+      try {
+        history.replaceState(null, "", `${location.pathname}${location.search}`);
+      } catch {
+        /* ignore */
+      }
     }
 
     function buildProjectMapSidebarHtml() {
@@ -1924,7 +1918,7 @@
         .join("") || '<li class="muted-text" style="font-size:11px;">Пока пусто — добавьте источники данных и внедрённые технологии.</li>';
       return `
         <h3>Проект по конфигуратору</h3>
-        <p class="hint" style="font-size:11px;margin:0 0 8px;line-height:1.35;">Урезанная схема: <b>${nClass}</b> классов, <b>${nZones}</b> зон, <b>${nEdges}</b> связей (все рёбра между оставшимися узлами и зонами). Класс на карте → база с фильтром по выбранным вендорам.</p>
+        <p class="hint" style="font-size:11px;margin:0 0 8px;line-height:1.35;">Урезанная схема: <b>${nClass}</b> классов, <b>${nZones}</b> зон, <b>${nEdges}</b> связей (только выбранные классы и линии <i>между ними</i>, без обхода всего графа через CMDB). Класс → база с фильтром по вендорам.</p>
         <a class="btn pm-exit-project-map" href="./index.html" style="display:block;text-align:center;text-decoration:none;box-sizing:border-box;margin-bottom:8px;">Полная схема →</a>
         <div style="font-size:11px;margin-bottom:6px;"><b>Выбранные продукты</b></div>
         <ul style="margin:0 0 10px;padding-left:1.1rem;font-size:11px;max-height:160px;overflow:auto;">${(ctx?.picks || [])
@@ -1980,7 +1974,10 @@
       const host = document.getElementById("projectMapSidebarSection");
       if (!host) return;
       host.style.display = "block";
-      host.innerHTML = `<h3>Проектная схема</h3><p class="hint" style="font-size:11px;line-height:1.45;">Данные выбора не найдены в этом браузере. Откройте <a href="./configurator.html">конфигуратор</a> и снова нажмите «Визуализировать на схеме» (передача через localStorage).</p>`;
+      const hasPayload = !!parseProjectMapHandoff();
+      host.innerHTML = hasPayload
+        ? `<h3>Проектная схема</h3><p class="hint" style="font-size:11px;line-height:1.45;">Выбор передан, но на схеме нет узлов с указанными id. Выполните подбор в <a href="./configurator.html">конфигураторе</a> ещё раз и откройте визуализацию снова.</p>`
+        : `<h3>Проектная схема</h3><p class="hint" style="font-size:11px;line-height:1.45;">Данные выбора не найдены. Откройте <a href="./configurator.html">конфигуратор</a> и снова нажмите «Визуализировать на схеме» (данные в localStorage и в хеше URL).</p>`;
     }
 
     function nodeRect(n) {
