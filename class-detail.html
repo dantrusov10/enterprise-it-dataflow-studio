@@ -530,21 +530,28 @@
     document.getElementById("refBlock").innerHTML = renderClassRefBlock(ref);
 
     (async () => {
-      const loadEl = document.getElementById("functionsLoading");
-      if (sheet?.data?.lazySheet) {
-        loadEl.style.display = "block";
-        await ensureFullSheet(sheet);
-        loadEl.style.display = "none";
-      }
-      const cat = await ensureVendorsCatalogDetail();
-      const vendorEntries = catalogEntriesForDetail(cat, ref, sheet, label);
-      document.getElementById("functionsBlock").innerHTML = renderAllFunctionsHtml(data, vendorEntries);
-      buildTocFnLinks(data);
+      try {
+        const loadEl = document.getElementById("functionsLoading");
+        if (sheet?.data?.lazySheet) {
+          loadEl.style.display = "block";
+          await ensureFullSheet(sheet);
+          loadEl.style.display = "none";
+        }
+        const data = sheet?.data;
+        const cat = await ensureVendorsCatalogDetail();
+        const vendorEntries = catalogEntriesForDetail(cat, ref, sheet, label);
+        document.getElementById("functionsBlock").innerHTML = renderAllFunctionsHtml(data, vendorEntries);
+        buildTocFnLinks(data);
 
-      const thead = document.getElementById("caTableHead");
-      const tbody = document.getElementById("caTableBody");
-      buildCompetitiveAnalysisTable(thead, tbody, data, vendorEntries);
-      wireCaColumnHighlight(document.getElementById("caCompTable"));
+        const thead = document.getElementById("caTableHead");
+        const tbody = document.getElementById("caTableBody");
+        buildCompetitiveAnalysisTable(thead, tbody, data, vendorEntries);
+        wireCaColumnHighlight(document.getElementById("caCompTable"));
+      } catch (err) {
+        console.error(err);
+        const fb = document.getElementById("functionsBlock");
+        if (fb) fb.innerHTML = `<p class="muted">Ошибка загрузки страницы класса: ${esc(String(err?.message || err))}</p>`;
+      }
     })();
   </script>
 </body>

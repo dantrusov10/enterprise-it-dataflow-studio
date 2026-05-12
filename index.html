@@ -259,7 +259,8 @@
     }
     .view-zone-cell:hover { background: #f1f5f9; border-color: #cbd5e1; }
     .view-zone-cell input { margin: 2px 0 0; flex-shrink: 0; width: 14px; height: 14px; cursor: pointer; }
-    .view-zone-cell-title { flex: 1; min-width: 0; word-break: break-word; }
+    .view-edge-dir[disabled] { opacity: 0.55; pointer-events: none; }
+    .view-edge-dir .view-check { margin-left: 2px; }
 
     .knowledge-dock {
       position: fixed; top: 12px; bottom: 12px; width: var(--kb-dock-w); right: 12px; z-index: 130;
@@ -340,6 +341,13 @@
           </div>
           <div id="viewZoneGrid" class="view-zone-grid" role="group" aria-label="Фильтр зон по галочкам" title="Снятая галочка: зона остаётся на карте в блюре, связи к ней приглушены. Все или ни одной = без фильтра."></div>
           <div class="hint" style="font-size:10px;margin-top:4px;">Снятые зоны не исчезают — серые и размытые; выбранные остаются читаемыми.</div>
+          <fieldset class="view-edge-dir" id="edgeDirFs" disabled style="margin-top:10px;border:1px solid #e2e8f0;border-radius:8px;padding:8px 8px 6px;">
+            <legend style="font-size:11px;font-weight:600;padding:0 4px;color:#334155;">Связи выбранного класса / зоны</legend>
+            <label class="view-check"><input type="radio" name="viewEdgeDir" value="both" checked /> Входящие и исходящие</label>
+            <label class="view-check"><input type="radio" name="viewEdgeDir" value="in" /> Только входящие</label>
+            <label class="view-check"><input type="radio" name="viewEdgeDir" value="out" /> Только исходящие</label>
+            <div class="hint" style="font-size:10px;margin-top:4px;">«Только…» скрывает остальные линии на карте. Активно, когда выделен класс или зона (не связь).</div>
+          </fieldset>
         </div>
         <h3 style="margin:10px 0 6px 0;font-size:12px;">Редактор карты</h3>
         <button class="btn" id="editToggle">Редактировать: выкл</button>
@@ -351,7 +359,7 @@
           <button type="button" class="btn" id="kbGapsRefreshBtn" style="margin-bottom:6px;">Обновить отчёт</button>
           <div id="kbGapsReport" class="kb-gaps-report muted-text" style="font-size:11px;line-height:1.4;max-height:280px;overflow:auto;"></div>
         </div>
-        <span class="badge">v10 поиск · конфигуратор (страница)</span>
+        <span class="badge">v11 фильтр связей · class-detail fix</span>
       </div>
     </aside>
     <div class="workspace-wrap">
@@ -1712,6 +1720,46 @@
       return true;
     }
 
+    function getEdgeDirectionMode() {
+      const el = document.querySelector('input[name="viewEdgeDir"]:checked');
+      return el?.value === "in" || el?.value === "out" ? el.value : "both";
+    }
+
+    function focusForEdgeDir() {
+      if (selectedNodeId) return { kind: "node", nid: selectedNodeId };
+      if (selectedZoneId) return { kind: "zone", zid: selectedZoneId };
+      return null;
+    }
+
+    function idInZoneFocus(endpointId, zid) {
+      if (endpointId === zid) return true;
+      const n = nodeById(endpointId);
+      return !!(n && n.zoneId === zid);
+    }
+
+    function edgePassesDirectionFocus(e) {
+      const f = focusForEdgeDir();
+      const mode = getEdgeDirectionMode();
+      if (!f || mode === "both") return true;
+      if (f.kind === "node") {
+        if (mode === "in") return e.to === f.nid && e.from !== f.nid;
+        if (mode === "out") return e.from === f.nid && e.to !== f.nid;
+      }
+      if (f.kind === "zone") {
+        const fromIn = idInZoneFocus(e.from, f.zid);
+        const toIn = idInZoneFocus(e.to, f.zid);
+        if (mode === "in") return toIn && !fromIn;
+        if (mode === "out") return fromIn && !toIn;
+      }
+      return true;
+    }
+
+    function syncEdgeDirFieldset() {
+      const fs = document.getElementById("edgeDirFs");
+      if (!fs) return;
+      fs.disabled = !(selectedNodeId || selectedZoneId);
+    }
+
     function zoneMapDimmedByFilter(z, zset) {
       return zset !== null && !zset.has(z.id);
     }
@@ -1734,7 +1782,9 @@
     }
 
     function isEdgeVisibleInFilter(e, zset) {
-      return isEdgeTypePassFilter(e);
+      if (!isEdgeTypePassFilter(e)) return false;
+      if (!edgePassesDirectionFocus(e)) return false;
+      return true;
     }
 
     function initViewFiltersUi() {
@@ -1762,6 +1812,7 @@
       viewEdgesDirect.addEventListener("change", rerender);
       viewEdgesAlt.addEventListener("change", rerender);
       viewEdgesZone.addEventListener("change", rerender);
+      document.querySelectorAll('input[name="viewEdgeDir"]').forEach((r) => r.addEventListener("change", rerender));
       zonesAllBtn.addEventListener("click", () => {
         viewZoneGrid.querySelectorAll('input[type="checkbox"][data-zone-id]').forEach((c) => { c.checked = true; });
         rerender();
@@ -2097,6 +2148,7 @@
       }
       if (selectedNodeId) {
         state.edges.forEach((e) => {
+          if (!edgePassesDirectionFocus(e)) return;
           if (e.from === selectedNodeId || e.to === selectedNodeId) s.add(e.id);
         });
         return s;
@@ -2106,6 +2158,7 @@
         if (!z) return s;
         const zoneNodeIds = state.nodes.filter((n) => n.zoneId === z.id).map((n) => n.id);
         state.edges.forEach((e) => {
+          if (!edgePassesDirectionFocus(e)) return;
           const fromInZone = e.from === z.id || zoneNodeIds.includes(e.from);
           const toInZone = e.to === z.id || zoneNodeIds.includes(e.to);
           if (fromInZone || toInZone) s.add(e.id);
@@ -2494,7 +2547,10 @@
         el.classList.remove("muted", "edge-active", "edge-dim", "edge-path--focus", "edge-label--focus"));
       edgesSvg.classList.remove("edges-svg--focus");
 
-      if (!selectedEdgeId && !selectedNodeId && !selectedZoneId) return;
+      if (!selectedEdgeId && !selectedNodeId && !selectedZoneId) {
+        syncEdgeDirFieldset();
+        return;
+      }
 
       edgesSvg.classList.add("edges-svg--focus");
       const rel = relevantEdgeIdsForFocus();
@@ -2522,7 +2578,10 @@
 
       if (selectedEdgeId) {
         const e = edgeById(selectedEdgeId);
-        if (!e) return;
+        if (!e) {
+          syncEdgeDirFieldset();
+          return;
+        }
         const fromZone = e.from.startsWith("z-");
         const toZone = e.to.startsWith("z-");
         const fromNode = fromZone ? null : nodeById(e.from);
@@ -2549,7 +2608,10 @@
 
       if (selectedNodeId) {
         const n = nodeById(selectedNodeId);
-        if (!n) return;
+        if (!n) {
+          syncEdgeDirFieldset();
+          return;
+        }
         const nodeEl = workspace.querySelector(`.node[data-node-id="${n.id}"]`);
         if (nodeEl) { nodeEl.classList.remove("muted"); nodeEl.classList.add("selected"); }
         if (n.zoneId) {
@@ -2578,7 +2640,10 @@
 
       if (selectedZoneId) {
         const z = zoneById(selectedZoneId);
-        if (!z) return;
+        if (!z) {
+          syncEdgeDirFieldset();
+          return;
+        }
 
         const zEl = workspace.querySelector(`.zone[data-zone-id="${z.id}"]`);
         if (zEl) { zEl.classList.remove("muted"); zEl.classList.add("selected"); }
@@ -2611,6 +2676,7 @@
           }
         });
       }
+      syncEdgeDirFieldset();
     }
 
     function beginLayoutDrag(op) {

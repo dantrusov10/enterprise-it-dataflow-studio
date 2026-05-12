@@ -470,47 +470,49 @@
       if (!cat || !Object.keys(cat).length) {
         return `<div class="cfg-subh">Подобранный бандл (продукты)</div><p class="muted">Нет данных каталога (<code>kb/merged/vendors-by-class.json</code>). Запустите <code>npm run merge-landscape</code> и откройте страницу с локального/деплой-сервера (не file://).</p>`;
       }
-    const rows = [];
-    for (const row of top.slice(0, 10)) {
-      const entries = vendorCatalogEntriesForRow(row, cat);
-      const labelPlain = row.node.label.replace(/\n/g, " ").trim();
-      const canonical = row.classRefKey || row.sheetKey || labelPlain;
-      if (!entries.length) {
-        rows.push({ canonical, labelPlain, pick: null, score: 0 });
-        continue;
-      }
-      let best = null;
-      let bestSc = -1;
-      for (const e of entries) {
-        const title = `${e.vendor} ${e.product}`;
-        const body = `${e.description || ""} ${e.topFunctions || ""}`;
-        const sc = scoreSearchItem({ title, body }, tokens);
-        if (sc > bestSc) {
-          bestSc = sc;
-          best = e;
+      const rows = [];
+      for (const row of top.slice(0, 10)) {
+        const entries = vendorCatalogEntriesForRow(row, cat);
+        const labelPlain = row.node.label.replace(/\n/g, " ").trim();
+        const canonical = row.classRefKey || row.sheetKey || labelPlain;
+        if (!entries.length) {
+          rows.push({ canonical, labelPlain, top3: [] });
+          continue;
         }
+        const scored = entries
+          .map((e) => {
+            const title = `${e.vendor} ${e.product}`;
+            const body = `${e.description || ""} ${e.topFunctions || ""}`;
+            return { e, score: scoreSearchItem({ title, body }, tokens) };
+          })
+          .sort((a, b) => b.score - a.score);
+        rows.push({ canonical, labelPlain, top3: scored.slice(0, 3) });
       }
-      rows.push({ canonical, labelPlain, pick: best, score: Math.max(0, bestSc) });
-    }
-    const picked = rows.filter((r) => r.pick).length;
-    const sum = rows.reduce((a, r) => a + r.score, 0);
-    const hint =
-      picked > 0
-        ? `Подобрано продуктов: ${picked} из ${rows.length}. Сумма скорингов по токенам запроса: ${sum}. Детальная матрица «функция × продукт» — в объединённом Excel после <code>npm run merge-landscape</code>.`
-        : "Не удалось сопоставить классы паутины с ключами каталога — проверьте названия классов в vendors-by-class.json.";
-    const tr = rows
-      .map(
-        (r) =>
-          `<tr><td><b>${esc(r.canonical)}</b><div class="muted" style="font-size:11px;">${esc(r.labelPlain)}</div></td><td>${
-            r.pick
-              ? `<b>${esc(r.pick.vendor)}</b> — ${esc(r.pick.product)}<div class="muted" style="font-size:11px;margin-top:4px;">${esc(
-                  String(r.pick.description || "").slice(0, 220)
-                )}${String(r.pick.description || "").length > 220 ? "…" : ""}</div>`
-              : '<span class="muted">нет строк каталога для класса</span>'
-          }</td><td style="white-space:nowrap;">${r.score}</td></tr>`
-      )
-      .join("");
-    return `<div class="cfg-subh">Подобранный бандл (продукт по каждому классу из топа)</div><p class="muted" style="margin-bottom:8px;">${hint}</p><table class="cfg-vt" aria-label="Бандл"><thead><tr><th>Класс</th><th>Продукт</th><th>Скор</th></tr></thead><tbody>${tr}</tbody></table>`;
+      const picked = rows.filter((r) => r.top3.length).length;
+      const hint =
+        picked > 0
+          ? `По каждому классу из топа — до 3 продуктов из каталога с скорингом по вашему запросу. Зелёная рамка — лучший скор в строке.`
+          : "Не удалось сопоставить классы с ключами каталога — проверьте vendors-by-class.json.";
+      function cellTop3(top3) {
+        const slots = [0, 1, 2].map((i) => top3[i] || null);
+        const maxSc = top3.reduce((m, x) => Math.max(m, x.score), 0);
+        return slots
+          .map((pick) => {
+            if (!pick) return '<td><span class="muted">—</span></td>';
+            const lead = maxSc > 0 && pick.score === maxSc ? " cfg-bundle-pick--lead" : "";
+            const snippet = esc(String(pick.e.description || "").slice(0, 140));
+            const tail = String(pick.e.description || "").length > 140 ? "…" : "";
+            return `<td><div class="cfg-bundle-pick${lead}"><span class="cfg-bundle-score">${pick.score}</span><b>${esc(pick.e.vendor)}</b> — ${esc(pick.e.product)}<div class="muted" style="font-size:10px;margin-top:4px;">${snippet}${tail}</div></div></td>`;
+          })
+          .join("");
+      }
+      const tr = rows
+        .map(
+          (r) =>
+            `<tr><td><b>${esc(r.canonical)}</b><div class="muted" style="font-size:11px;">${esc(r.labelPlain)}</div></td>${cellTop3(r.top3)}</tr>`
+        )
+        .join("");
+      return `<div class="cfg-subh">Бандл: топ‑3 продукта на класс</div><p class="muted" style="margin-bottom:8px;">${hint}</p><table class="cfg-vt" aria-label="Бандл"><thead><tr><th>Класс</th><th>Топ‑1</th><th>Топ‑2</th><th>Топ‑3</th></tr></thead><tbody>${tr}</tbody></table>`;
     } catch (err) {
       console.error(err);
       return `<div class="cfg-subh">Бандл</div><p class="muted">Ошибка при подборе бандла. Проверьте консоль и доступность <code>kb/merged/vendors-by-class.json</code>.</p>`;
@@ -822,9 +824,11 @@
       return;
     }
 
-    resultsEl.innerHTML = `<div class="cfg-subh">Классы решений</div>` + top.map((row) => buildClassCardHtml(row, hl, { mode: "zones" })).join("");
+    const cardsHtml = `<div class="cfg-subh">Классы решений</div>` + top.map((row) => buildClassCardHtml(row, hl, { mode: "zones" })).join("");
     if (outputKind === "bundle") {
-      resultsEl.innerHTML += await buildBundleHtmlFromTopClasses(top, allToks);
+      resultsEl.innerHTML = await buildBundleHtmlFromTopClasses(top, allToks);
+    } else {
+      resultsEl.innerHTML = cardsHtml;
     }
 
     lastRunCtx = {
@@ -937,12 +941,14 @@
       return;
     }
 
-    resultsEl.innerHTML =
+    const cardsHtml =
       zoneBlock +
       `<div class="cfg-subh">Классы решений</div>` +
       top.map((row) => buildClassCardHtml(row, hl, { mode: "free" })).join("");
     if (outputKind === "bundle") {
-      resultsEl.innerHTML += await buildBundleHtmlFromTopClasses(top, tokens);
+      resultsEl.innerHTML = await buildBundleHtmlFromTopClasses(top, tokens);
+    } else {
+      resultsEl.innerHTML = cardsHtml;
     }
 
     lastRunCtx = {
