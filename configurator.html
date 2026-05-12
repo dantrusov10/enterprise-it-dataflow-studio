@@ -88,6 +88,16 @@
     .cfg-st-yes { color: #047857; font-weight: 600; }
     .cfg-st-part { color: #b45309; font-weight: 600; }
     .cfg-st-no { color: #b91c1c; font-weight: 600; }
+    .cfg-st-unk { color: #64748b; font-weight: 600; }
+    .cfg-catalog-picks {
+      display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto;
+      padding: 8px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fafafa; margin-top: 8px;
+    }
+    .cfg-catalog-picks label { display: block; font-size: 11px; line-height: 1.35; cursor: pointer; padding: 2px 0; }
+    .cfg-corr-block {
+      border: 1px solid #bae6fd; background: #f0f9ff; border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; font-size: 12px; line-height: 1.45;
+    }
+    .cfg-corr-block h3 { margin: 0 0 8px; font-size: 13px; color: #0c4a6e; }
     .cfg-pct { font-size: 22px; font-weight: 800; color: #1d4ed8; margin: 8px 0 4px; }
     .cfg-composite { font-size: 12px; line-height: 1.45; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
     .cfg-results-wrap { position: relative; min-height: 48px; }
@@ -104,7 +114,7 @@
   </style>
   <script src="./enterprise-it-dataflow-knowledge.js?v=kb20260208"></script>
   <script src="./vendor-catalog-meta.js"></script>
-  <script src="./configurator-page.js?v=6"></script>
+  <script src="./configurator-page.js?v=7"></script>
 </head>
 <body>
   <div class="page">

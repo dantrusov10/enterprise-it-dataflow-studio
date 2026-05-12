@@ -40,7 +40,11 @@
     th.ca-vendor-head { cursor: pointer; user-select: none; white-space: nowrap; max-width: 140px; font-size: 11px; line-height: 1.25; }
     th.ca-vendor-head:hover { background: #e0f2fe; }
     th.ca-vendor-head.is-on, td.ca-vendor-cell.is-on { background: #dbeafe !important; box-shadow: inset 0 0 0 1px #2563eb; }
-    td.ca-score { text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    td.ca-score { text-align: center; white-space: nowrap; }
+    .ca-st-yes { color: #047857; font-weight: 600; }
+    .ca-st-part { color: #b45309; font-weight: 600; }
+    .ca-st-no { color: #b91c1c; font-weight: 600; }
+    .ca-st-unk { color: #64748b; font-weight: 600; }
     .ca-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; font-size: 12px; }
     .ca-toolbar label { display: flex; align-items: center; gap: 6px; }
     .ca-toolbar select, .ca-toolbar input[type="search"] { font-size: 12px; padding: 5px 8px; border-radius: 6px; border: 1px solid #cbd5e1; }
@@ -441,12 +445,26 @@
       return `${e.vendor}\u0001${e.product}`;
     }
 
-    function funcScoreCell(f, e) {
+    function funcScoreNumeric(f, e) {
       const q = [f.title, f.general, f.technical, f.business].filter(Boolean).join(" ");
       const tokens = expandQueryTokens(tokenizeQuery(q));
       const title = `${e.vendor} ${e.product}`;
       const body = `${e.description || ""} ${e.topFunctions || ""}`;
       return tokens.length ? scoreSearchItem({ title, body }, tokens) + vendorPrestigeBonus(e.vendor) : vendorPrestigeBonus(e.vendor);
+    }
+
+    function caStatusFromScore(f, e) {
+      const q = [f.title, f.general, f.technical, f.business].filter(Boolean).join(" ");
+      const tokens = expandQueryTokens(tokenizeQuery(q));
+      const hasTok = tokens.length > 0;
+      const title = `${e.vendor} ${e.product}`;
+      const body = `${e.description || ""} ${e.topFunctions || ""}`;
+      const sc = hasTok ? scoreSearchItem({ title, body }, tokens) + vendorPrestigeBonus(e.vendor) : vendorPrestigeBonus(e.vendor);
+      if (!hasTok) return { label: "Неизвестно", cls: "ca-st-unk" };
+      if (sc >= 18) return { label: "Да", cls: "ca-st-yes" };
+      if (sc >= 6) return { label: "Частично", cls: "ca-st-part" };
+      if (sc >= 1) return { label: "Частично", cls: "ca-st-part" };
+      return { label: "Нет", cls: "ca-st-no" };
     }
 
     function initCaMatrixInteractive(theadEl, tbodyEl, toolbarEl, pickHostEl, data, vendorEntries) {
@@ -469,7 +487,7 @@
       }
       const baseList = (vendorEntries || []).map((e) => {
         let total = 0;
-        for (const f of sample) total += funcScoreCell(f, e);
+        for (const f of sample) total += funcScoreNumeric(f, e);
         return { e, total, key: caEntryKey(e) };
       });
       baseList.sort((a, b) => b.total - a.total);
@@ -564,9 +582,8 @@
           .map((f) => {
             const cells = vendors
               .map((e, vix) => {
-                const sc = funcScoreCell(f, e);
-                const show = sc > 0 ? String(Math.round(sc)) : "·";
-                return `<td class="ca-score ca-vendor-cell" data-vix="${vix}">${esc(show)}</td>`;
+                const { label, cls } = caStatusFromScore(f, e);
+                return `<td class="ca-score ca-vendor-cell ${cls}" data-vix="${vix}">${esc(label)}</td>`;
               })
               .join("");
             return `<tr><td>${esc(f.title)}</td><td>—</td>${cells}<td class="muted">Клик по заголовку — подсветка колонки</td></tr>`;

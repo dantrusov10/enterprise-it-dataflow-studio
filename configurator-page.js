@@ -90,6 +90,8 @@
 
   /** Последний успешный подбор: для слоя вендоров и композиции. */
   let lastRunCtx = null;
+  /** Ключи выбранных продуктов каталога (vendor\u0001product) для матрицы тем. */
+  let CATALOG_PICK_KEYS = new Set();
 
   const VENDOR_PROFILES = [
     {
@@ -467,6 +469,72 @@
     return best;
   }
 
+  function catalogEntryKey(e) {
+    return `${e.vendor}\u0001${e.product}`;
+  }
+
+  async function buildCatalogPickEntries(top, tokens) {
+    const cat = await loadVendorsByClassCatalog();
+    if (!cat || !Object.keys(cat).length) return [];
+    const dim = getBundleDimFilters();
+    const VCM = window.VENDOR_CATALOG_META;
+    const map = new Map();
+    for (const row of top.slice(0, 12)) {
+      const raw = vendorCatalogEntriesForRow(row, cat);
+      const entries = VCM ? raw.filter((e) => VCM.passesDim(e, dim)) : raw;
+      for (const e of entries) {
+        const key = catalogEntryKey(e);
+        if (map.has(key)) continue;
+        const title = `${e.vendor} ${e.product}`;
+        const body = `${e.description || ""} ${e.topFunctions || ""}`;
+        const pickScore = scoreSearchItem({ title, body }, tokens);
+        const cls = row.classRefKey || row.sheetKey || row.node.label.replace(/\n/g, " ").trim();
+        map.set(key, { key, entry: e, pickScore, classLabel: cls });
+      }
+    }
+    return [...map.values()].sort((a, b) => b.pickScore - a.pickScore).slice(0, 48);
+  }
+
+  function syncCatalogPickSelection(entries) {
+    const incoming = new Set(entries.map((x) => x.key));
+    const next = new Set();
+    for (const k of CATALOG_PICK_KEYS) if (incoming.has(k)) next.add(k);
+    if (next.size === 0) entries.slice(0, 16).forEach((x) => next.add(x.key));
+    CATALOG_PICK_KEYS = next;
+  }
+
+  function catalogThemeStatus(entry, gi, queryTokens) {
+    const extra = [];
+    for (const k of THESAURUS_GROUPS[gi]) extra.push(...tokenizeQuery(k));
+    const toks = expandQueryTokens([...queryTokens, ...extra]);
+    if (!toks.length) return "unk";
+    const item = {
+      title: `${entry.vendor} ${entry.product}`,
+      body: `${entry.description || ""} ${entry.topFunctions || ""}`
+    };
+    const sc = scoreSearchItem(item, toks);
+    if (sc >= 14) return "yes";
+    if (sc >= 5) return "part";
+    if (sc >= 1) return "part";
+    return "no";
+  }
+
+  function catalogCoveragePct(entry, themes, queryTokens) {
+    if (!themes.length) return 0;
+    let sum = 0;
+    for (const gi of themes) sum += statusWeight(catalogThemeStatus(entry, gi, queryTokens));
+    return Math.min(100, Math.round((100 * sum) / themes.length));
+  }
+
+  function bundleFitLabel(sc, maxSc) {
+    if (maxSc <= 0) return "Неизвестно";
+    const r = sc / maxSc;
+    if (r >= 0.7) return "Да";
+    if (r >= 0.28) return "Частично";
+    if (sc > 0) return "Частично";
+    return "Нет";
+  }
+
   function getBundleDimFilters() {
     if (!window.VENDOR_CATALOG_META) return { region: "all", oss: "all" };
     return {
@@ -505,7 +573,7 @@
       const picked = rows.filter((r) => r.top3.length).length;
       const hint =
         picked > 0
-          ? `По каждому классу из топа — до 3 продуктов из каталога с скорингом по вашему запросу. Зелёная рамка — лучший скор в строке.`
+          ? `По каждому классу из топа — до 3 продуктов из каталога; в ячейке — оценка соответствия запросу (Да / Частично / Нет / Неизвестно). Зелёная рамка — лучший вариант в строке.`
           : "Не удалось сопоставить классы с ключами каталога — проверьте vendors-by-class.json.";
       function cellTop3(top3) {
         const slots = [0, 1, 2].map((i) => top3[i] || null);
@@ -516,7 +584,8 @@
             const lead = maxSc > 0 && pick.score === maxSc ? " cfg-bundle-pick--lead" : "";
             const snippet = esc(String(pick.e.description || "").slice(0, 140));
             const tail = String(pick.e.description || "").length > 140 ? "…" : "";
-            return `<td><div class="cfg-bundle-pick${lead}"><span class="cfg-bundle-score">${pick.score}</span><b>${esc(pick.e.vendor)}</b> — ${esc(pick.e.product)}<div class="muted" style="font-size:10px;margin-top:4px;">${snippet}${tail}</div></div></td>`;
+            const fit = bundleFitLabel(pick.score, maxSc);
+            return `<td><div class="cfg-bundle-pick${lead}"><span class="cfg-bundle-score">${esc(fit)}</span><b>${esc(pick.e.vendor)}</b> — ${esc(pick.e.product)}<div class="muted" style="font-size:10px;margin-top:4px;">${snippet}${tail}</div></div></td>`;
           })
           .join("");
       }
@@ -582,6 +651,7 @@
   function statusWeight(st) {
     if (st === "yes") return 1;
     if (st === "part") return 0.45;
+    if (st === "unk") return 0;
     return 0;
   }
 
@@ -593,9 +663,10 @@
   }
 
   function statusLabelRu(st) {
-    if (st === "yes") return { t: "Есть", c: "cfg-st-yes" };
+    if (st === "yes") return { t: "Да", c: "cfg-st-yes" };
     if (st === "part") return { t: "Частично", c: "cfg-st-part" };
-    return { t: "Нет / слабо", c: "cfg-st-no" };
+    if (st === "unk") return { t: "Неизвестно", c: "cfg-st-unk" };
+    return { t: "Нет", c: "cfg-st-no" };
   }
 
   function selectedVendors() {
@@ -608,47 +679,103 @@
       if (host) host.innerHTML = `<p class="muted">Сначала выполните подбор — появятся темы требований и расчёт по вендорам.</p>`;
       return;
     }
-    const picked = selectedVendors();
+    const pickedStacks = selectedVendors();
     const themes = lastRunCtx.activeThemeIndices;
-    if (!picked.length) {
-      host.innerHTML = `<p class="muted">Отметьте один или несколько вендоров портфеля — покажем матрицу «есть / нет» по темам из запроса.</p>`;
+    const tokens = lastRunCtx.tokens || [];
+    const catRows = lastRunCtx.catalogEntries || [];
+    const pickedCat = catRows.filter((x) => CATALOG_PICK_KEYS.has(x.key));
+
+    if (!pickedStacks.length && !pickedCat.length) {
+      host.innerHTML = `<p class="muted">Отметьте один или несколько <b>условных стеков</b> и/или <b>продукты из каталога</b> — покажем матрицу «Да / Нет / Частично / Неизвестно» по темам из запроса.</p>`;
       return;
     }
 
     if (!themes.length) {
-      host.innerHTML = `<p class="muted">По запросу не выделились темы из тезауруса — уточните формулировку (например: инциденты, CMDB, лицензии). Матрица вендоров появится, когда темы будут распознаны.</p>`;
+      host.innerHTML = `<p class="muted">По запросу не выделились темы из тезауруса — уточните формулировку (например: инциденты, CMDB, лицензии). Матрица появится, когда темы будут распознаны.</p>`;
       return;
     }
 
+    const headCells = [
+      ...pickedStacks.map((v) => `<th scope="col">${esc(v.name)}</th>`),
+      ...pickedCat.map((x) => `<th scope="col" title="${esc(x.entry.vendor + " — " + x.entry.product)}">${esc(x.entry.vendor)} — ${esc(x.entry.product)}</th>`)
+    ].join("");
+
     const rows = themes.map((gi) => {
       const label = THEME_GROUP_LABELS[gi] || `Тема ${gi + 1}`;
-      const cells = picked.map((v) => {
+      const stackCells = pickedStacks.map((v) => {
         const st = vendorThemeStatus(v, gi);
         const { t, c } = statusLabelRu(st);
         return `<td class="${c}">${esc(t)}</td>`;
-      }).join("");
-      return `<tr><th scope="row">${esc(label)}</th>${cells}</tr>`;
+      });
+      const catCells = pickedCat.map((x) => {
+        const st = catalogThemeStatus(x.entry, gi, tokens);
+        const { t, c } = statusLabelRu(st);
+        return `<td class="${c}">${esc(t)}</td>`;
+      });
+      return `<tr><th scope="row">${esc(label)}</th>${stackCells.join("")}${catCells.join("")}</tr>`;
     });
 
-    const head = `<tr><th scope="col">Тема из требований</th>${picked.map((v) => `<th scope="col">${esc(v.name)}</th>`).join("")}</tr>`;
+    const head = `<tr><th scope="col">Тема из требований</th>${headCells}</tr>`;
 
-    const pctBlocks = picked
-      .map((v) => {
-        const pct = vendorCoveragePct(v, themes);
-        return `<div style="flex:1;min-width:120px;"><div class="muted" style="font-size:11px;">${esc(v.name)}</div><div class="cfg-pct">${pct}%</div><div class="muted" style="font-size:10px;">условное покрытие тем</div></div>`;
-      })
-      .join("");
+    const pctStack = pickedStacks.map((v) => {
+      const pct = vendorCoveragePct(v, themes);
+      return `<div style="flex:1;min-width:120px;"><div class="muted" style="font-size:11px;">${esc(v.name)}</div><div class="cfg-pct">${pct}%</div><div class="muted" style="font-size:10px;">условное покрытие тем</div></div>`;
+    });
+    const pctCat = pickedCat.map((x) => {
+      const pct = catalogCoveragePct(x.entry, themes, tokens);
+      return `<div style="flex:1;min-width:120px;"><div class="muted" style="font-size:11px;">${esc(x.entry.vendor)} — ${esc(x.entry.product)}</div><div class="cfg-pct">${pct}%</div><div class="muted" style="font-size:10px;">по темам запроса</div></div>`;
+    });
+    const pctBlocks = [...pctStack, ...pctCat].join("");
 
-    const composite = buildCompositePlan(picked, themes);
+    const composite = pickedStacks.length ? buildCompositePlan(pickedStacks, themes) : "Условные стеки не выбраны — черновик композиции по стекам не строится.";
+    const catNote =
+      pickedCat.length > 0
+        ? ` Отмечено продуктов каталога: ${pickedCat.length} — см. колонки матрицы и проценты выше.`
+        : "";
 
     host.innerHTML = `
       <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;">${pctBlocks}</div>
-      <table class="cfg-vt" aria-label="Покрытие тем вендорами">
+      <table class="cfg-vt" aria-label="Покрытие тем вендорами и продуктами каталога">
         <thead>${head}</thead>
         <tbody>${rows.join("")}</tbody>
       </table>
-      <div class="cfg-composite"><b>Черновик комплексной конфигурации</b> (по соотношению тем; заменится оптимизатором по матрице функций):<br/>${esc(composite)}</div>
+      <div class="cfg-composite"><b>Черновик комплексной конфигурации</b> (по соотношению тем; заменится оптимизатором по матрице функций):<br/>${esc(composite)}${esc(catNote)}</div>
     `;
+  }
+
+  function renderVendorPick() {
+    const host = document.getElementById("cfgVendorPick");
+    if (!host) return;
+    const cat = lastRunCtx?.catalogEntries || [];
+    let html = `<div class="muted" style="font-size:11px;margin-bottom:6px;">Условные стеки портфеля (быстрая оценка по тезаурусу):</div>`;
+    html += VENDOR_PROFILES.map((v) => `
+      <label><input type="checkbox" id="cfg-v-${esc(v.id)}" data-vendor-id="${esc(v.id)}" /> ${esc(v.name)}</label>
+    `).join("");
+    if (cat.length) {
+      html += `<div class="muted" style="font-size:11px;margin-top:12px;">Продукты из каталога под текущий подбор — отметьте для матрицы «Да / Нет / Частично / Неизвестно» по темам запроса:</div>`;
+      html += `<div class="cfg-catalog-picks">`;
+      for (const row of cat) {
+        const e = row.entry;
+        const checked = CATALOG_PICK_KEYS.has(row.key) ? " checked" : "";
+        html += `<label><input type="checkbox" class="cfg-cat-pick" data-cat-key="${esc(row.key)}"${checked} /> ${esc(e.vendor)} — ${esc(e.product)} <span class="muted">(${esc(row.classLabel)})</span></label>`;
+      }
+      html += `</div>`;
+    } else if (lastRunCtx) {
+      html += `<p class="muted" style="font-size:11px;margin-top:8px;">Каталог вендоров пуст или не загрузился — матрица только по условным стекам.</p>`;
+    }
+    host.innerHTML = html;
+    host.querySelectorAll("input[type=checkbox][data-vendor-id]").forEach((el) => {
+      el.addEventListener("change", () => renderVendorDetail());
+    });
+    host.querySelectorAll("input.cfg-cat-pick").forEach((el) => {
+      el.addEventListener("change", () => {
+        const key = el.getAttribute("data-cat-key");
+        if (!key) return;
+        if (el.checked) CATALOG_PICK_KEYS.add(key);
+        else CATALOG_PICK_KEYS.delete(key);
+        renderVendorDetail();
+      });
+    });
   }
 
   function buildCompositePlan(vendors, themes) {
@@ -675,17 +802,6 @@
       parts.push(`Интеграция: заложить шину обмена и единый каталог идентичностей между ${vendors.length} контурами.`);
     }
     return parts.join(". ");
-  }
-
-  function renderVendorPick() {
-    const host = document.getElementById("cfgVendorPick");
-    if (!host) return;
-    host.innerHTML = VENDOR_PROFILES.map((v) => `
-      <label><input type="checkbox" id="cfg-v-${esc(v.id)}" data-vendor-id="${esc(v.id)}" /> ${esc(v.name)}</label>
-    `).join("");
-    host.querySelectorAll("input[type=checkbox]").forEach((el) => {
-      el.addEventListener("change", () => renderVendorDetail());
-    });
   }
 
   function buildClassCardHtml(row, hl, options) {
@@ -764,6 +880,8 @@
       if (statusEl) statusEl.textContent = "Заполните хотя бы одну зону требований или общий контекст.";
       resultsEl.innerHTML = "";
       lastRunCtx = null;
+      CATALOG_PICK_KEYS = new Set();
+      renderVendorPick();
       renderVendorDetail();
       return;
     }
@@ -834,9 +952,14 @@
     if (!top.length) {
       resultsEl.innerHTML = `<p class="muted">Попробуйте тезаурус: ITSM, CMDB, лицензии, IAM, мониторинг…</p>`;
       lastRunCtx = null;
+      CATALOG_PICK_KEYS = new Set();
+      renderVendorPick();
       renderVendorDetail();
       return;
     }
+
+    const catPackZones = await buildCatalogPickEntries(top, allToks);
+    syncCatalogPickSelection(catPackZones);
 
     const cardsHtml = `<div class="cfg-subh">Классы решений</div>` + top.map((row) => buildClassCardHtml(row, hl, { mode: "zones" })).join("");
     if (outputKind === "bundle") {
@@ -851,9 +974,50 @@
       requirementSummary: hl,
       tokens: allToks,
       activeThemeIndices: activeThemeIndices(allToks),
-      topClasses: top.slice(0, 8)
+      topClasses: top.slice(0, 8),
+      catalogEntries: catPackZones
     };
+    renderVendorPick();
     renderVendorDetail();
+  }
+
+  async function buildFreeCorrelationHtml(top, tokens) {
+    const slice = top.slice(0, 10);
+    if (!slice.length) return "";
+    const seen = new Set();
+    const matchedFuncs = [];
+    for (const row of slice) {
+      await ensureLazyForNode(row.node);
+      const sh = classSheetByNode(row.node);
+      const data = sh?.data;
+      const list = listFromValue(data?.allFunctions?.length ? data.allFunctions : data?.topFunctions);
+      const clsLabel = row.classRefKey || row.sheetKey || row.node.label.replace(/\n/g, " ").trim();
+      for (const f of list) {
+        if (String(f.type || "").toLowerCase().includes("категор")) continue;
+        const fs = scoreSearchItem(
+          { title: f.title || "", body: [f.title, f.general, f.technical, f.business].filter(Boolean).join(" ") },
+          tokens
+        );
+        if (fs < 2) continue;
+        const line = `${clsLabel}: ${f.title || "функция"}`;
+        const key = line.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        matchedFuncs.push({ line, fs });
+      }
+    }
+    matchedFuncs.sort((a, b) => b.fs - a.fs);
+    const topFns = matchedFuncs.slice(0, 36);
+    const fnUl =
+      topFns.length > 0
+        ? `<ul style="margin:6px 0 0;padding-left:1.2rem;">${topFns.map((x) => `<li>${esc(x.line)}</li>`).join("")}</ul>`
+        : `<p class="muted" style="margin:6px 0 0;">По тексту не удалось выявить конкретные строки функций из листов — добавьте явные ИТ-термины (ITSM, CMDB, SAM, мониторинг…).</p>`;
+    return `<div class="cfg-corr-block">
+  <h3>Корреляция с запросом</h3>
+  <div>В текущем топе подбора: <b>${slice.length}</b> класс(ов) решений. Ниже — строки функций из листов KB этих классов, которые <b>согласуются</b> с вашим текстом (до 36 позиций).</div>
+  ${fnUl}
+  <div class="muted" style="margin-top:8px;font-size:11px;">Карточки классов и каталог ниже отражают ранжирование по совпадению с запросом.</div>
+</div>`;
   }
 
   async function runModeFree(statusEl, resultsEl, outputKind) {
@@ -866,6 +1030,8 @@
       if (statusEl) statusEl.textContent = "Введите абзац скоупа (слова от 2 букв; лучше 3+ для устойчивости).";
       resultsEl.innerHTML = "";
       lastRunCtx = null;
+      CATALOG_PICK_KEYS = new Set();
+      renderVendorPick();
       renderVendorDetail();
       return;
     }
@@ -943,24 +1109,32 @@
 
     if (!top.length) {
       resultsEl.innerHTML = zoneBlock + `<p class="muted" style="margin-top:12px;">Классы не ранжированы — уточните ИТ-термины.</p>`;
+      syncCatalogPickSelection([]);
       lastRunCtx = {
         mode: "free",
         outputKind,
         requirementSummary: hl,
         tokens,
         activeThemeIndices: activeThemeIndices(tokens),
-        topClasses: []
+        topClasses: [],
+        catalogEntries: []
       };
+      renderVendorPick();
       renderVendorDetail();
       return;
     }
 
+    const corrHtml = await buildFreeCorrelationHtml(top, tokens);
+    const catPackFree = await buildCatalogPickEntries(top, tokens);
+    syncCatalogPickSelection(catPackFree);
+
     const cardsHtml =
       zoneBlock +
+      corrHtml +
       `<div class="cfg-subh">Классы решений</div>` +
       top.map((row) => buildClassCardHtml(row, hl, { mode: "free" })).join("");
     if (outputKind === "bundle") {
-      resultsEl.innerHTML = await buildBundleHtmlFromTopClasses(top, tokens);
+      resultsEl.innerHTML = zoneBlock + corrHtml + (await buildBundleHtmlFromTopClasses(top, tokens));
     } else {
       resultsEl.innerHTML = cardsHtml;
     }
@@ -971,8 +1145,10 @@
       requirementSummary: hl,
       tokens,
       activeThemeIndices: activeThemeIndices(tokens),
-      topClasses: top.slice(0, 8)
+      topClasses: top.slice(0, 8),
+      catalogEntries: catPackFree
     };
+    renderVendorPick();
     renderVendorDetail();
   }
 
@@ -1002,6 +1178,10 @@
       console.error(e);
       if (statusEl) statusEl.textContent = "Ошибка подбора — см. консоль браузера.";
       resultsEl.innerHTML = `<p class="muted">Сбой выполнения. Убедитесь, что страница открыта через http(s), а не file://.</p>`;
+      lastRunCtx = null;
+      CATALOG_PICK_KEYS = new Set();
+      renderVendorPick();
+      renderVendorDetail();
     } finally {
       setCfgLoading(false, "Подбор…");
     }
