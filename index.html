@@ -361,7 +361,7 @@
       </div>
     </div>
   </div>
-  <script src="./enterprise-it-dataflow-knowledge.js"></script>
+  <script src="./enterprise-it-dataflow-knowledge.js?v=kb20260208"></script>
   <script>
     const appRoot = document.getElementById("appRoot");
     const minimapSvg = document.getElementById("minimapSvg");
@@ -772,6 +772,48 @@
       return KB.zones?.[zoneId] || null;
     }
 
+    /** Явные ключи KB.classReference по id узла схемы (устойчиво к кэшу и к расхождению подписи с CSV). */
+    const NODE_KB_CLASSREF_KEY = {
+      "n-t2": "Service Desk",
+      "n-t3": "Incident Management",
+      "n-t4": "Change Management",
+      "n-t5": "Problem Management",
+      "n-t8": "Release Management",
+      "n-f1": "ITAM",
+      "n-f2": "SAM",
+      "n-f4": "License Management",
+      "n-s2": "Vulnerability Management",
+      "n-o1": "Monitoring / Event",
+      "n-o5": "Configuration Management",
+    };
+
+    /** Явные ключи KB.classSheets (если отличаются от справочника). */
+    const NODE_KB_SHEET_KEY = {
+      "n-o1": "мониторинг",
+      "n-s2": "Сканер уязвимости",
+    };
+
+    /** Варианты подписи узла для сопоставления со справочником и листами (Mgmt → Management, узловые алиасы). */
+    function expandNodeLabelMatchCandidates(node) {
+      if (!node) return [];
+      const raw = String(node.label || "").replace(/\n/g, " ").trim();
+      const parts = [raw, ...raw.split("/").map((s) => s.trim())].filter(Boolean);
+      const out = new Set();
+      for (const p of parts) {
+        out.add(p);
+        out.add(p.replace(/\bMgmt\b/gi, "Management"));
+        out.add(p.replace(/\//g, "?"));
+      }
+      if (node.id === "n-s2") {
+        out.add("Сканер уязвимости");
+        out.add("Vulnerability Management");
+      }
+      if (node.id === "n-o1") {
+        out.add("мониторинг");
+      }
+      return [...out].filter(Boolean);
+    }
+
     function classRefByNode(node) {
       if (!node) return null;
       if (node.hub && node.id === "n-hub") {
@@ -788,11 +830,10 @@
           };
         }
       }
-      const candidates = [node.label];
-      const slashParts = node.label.split("/").map(s => s.trim()).filter(Boolean);
-      candidates.push(...slashParts);
-      candidates.push(node.label.replace(/\n/g, " ").trim());
       const ref = KB.classReference || {};
+      const forced = NODE_KB_CLASSREF_KEY[node.id];
+      if (forced && ref[forced]) return { key: forced, data: ref[forced] };
+      const candidates = expandNodeLabelMatchCandidates(node);
       for (const key of Object.keys(ref)) {
         const nk = nrm(key);
         for (const c of candidates) {
@@ -815,11 +856,11 @@
       if (isDiscoveryInventoryLayer && sheets["дискаверинг"]) {
         return { key: "дискаверинг", data: sheets["дискаверинг"] };
       }
-      const candidates = [
-        node.label,
-        ...node.label.split("/").map(s => s.trim()),
-        node.label.replace(/\n/g, " ").trim()
-      ].filter(Boolean);
+      const skForced = NODE_KB_SHEET_KEY[node.id];
+      if (skForced && sheets[skForced]) return { key: skForced, data: sheets[skForced] };
+      const skFromRef = NODE_KB_CLASSREF_KEY[node.id];
+      if (skFromRef && sheets[skFromRef]) return { key: skFromRef, data: sheets[skFromRef] };
+      const candidates = expandNodeLabelMatchCandidates(node);
       for (const key of Object.keys(sheets)) {
         const nk = nrm(key);
         for (const c of candidates) {
@@ -1349,9 +1390,9 @@
         { id: "e1", from: "n-src1", to: "n-d1", label: "CI атрибуты · инвентарные признаки", type: "direct", c: {x: 470, y: 120} },
         { id: "e2", from: "n-d1", to: "n-n1", label: "сырые CI · HW/SW inventory", type: "direct", c: {x: 1090, y: 230} },
         { id: "e4", from: "n-d3", to: "n-n1", label: "cloud assets", type: "direct", c: {x: 1290, y: 210} },
-        { id: "e5", from: "n-n1", to: "n-n2", label: "", type: "direct", c: {x: 1500, y: 380} },
-        { id: "e6", from: "n-n3", to: "n-n2", label: "", type: "direct", c: {x: 1435, y: 470} },
-        { id: "e7", from: "n-n4", to: "n-n2", label: "", type: "direct", c: {x: 1630, y: 470} },
+        { id: "e5", from: "n-n1", to: "n-n2", label: "нормализованные записи CI", type: "direct", c: {x: 1500, y: 380} },
+        { id: "e6", from: "n-n3", to: "n-n2", label: "признаки ПО для reconciliation", type: "direct", c: {x: 1435, y: 470} },
+        { id: "e7", from: "n-n4", to: "n-n2", label: "обогащение владельцами и атрибутами", type: "direct", c: {x: 1630, y: 470} },
         { id: "e8", from: "n-n2", to: "n-hub", label: "нормализованные и обогащенные CI", type: "direct", c: {x: 1320, y: 500} },
         { id: "e9", from: "n-hub", to: "n-t1", label: "service map", type: "direct", c: {x: 1060, y: 580} },
         { id: "e10", from: "n-o1", to: "n-t3", label: "alerts", type: "direct", c: {x: 900, y: 940} },
@@ -1360,17 +1401,17 @@
         { id: "e13", from: "n-f1", to: "n-t1", label: "asset context", type: "direct", c: {x: 1310, y: 740} },
         { id: "e14", from: "n-s6", to: "n-s1", label: "privileged sessions", type: "direct", c: {x: 470, y: 1060} },
         { id: "e15", from: "n-c1", to: "n-d3", label: "cloud config", type: "direct", c: {x: 1620, y: 250} },
-        { id: "e19", from: "n-t1", to: "n-t4", label: "", type: "direct", c: {x: 1030, y: 800} },
-        { id: "e20", from: "n-t1", to: "n-t5", label: "", type: "direct", c: {x: 1120, y: 800} },
-        { id: "e21", from: "n-t6", to: "n-t1", label: "", type: "direct", c: {x: 1300, y: 760} },
-        { id: "e22", from: "n-f2", to: "n-f4", label: "", type: "direct", c: {x: 1730, y: 760} },
-        { id: "e23", from: "n-f1", to: "n-f5", label: "", type: "direct", c: {x: 1580, y: 760} },
-        { id: "e24", from: "n-s3", to: "n-s1", label: "", type: "direct", c: {x: 230, y: 1165} },
-        { id: "e25", from: "n-s4", to: "n-s5", label: "", type: "direct", c: {x: 520, y: 1210} },
+        { id: "e19", from: "n-t1", to: "n-t4", label: "инициация и учёт изменений", type: "direct", c: {x: 1030, y: 800} },
+        { id: "e20", from: "n-t1", to: "n-t5", label: "связь инцидентов с проблемами", type: "direct", c: {x: 1120, y: 800} },
+        { id: "e21", from: "n-t6", to: "n-t1", label: "заказы услуг из каталога", type: "direct", c: {x: 1300, y: 760} },
+        { id: "e22", from: "n-f2", to: "n-f4", label: "entitlement и нормализация лицензий", type: "direct", c: {x: 1730, y: 760} },
+        { id: "e23", from: "n-f1", to: "n-f5", label: "статусы жизненного цикла актива", type: "direct", c: {x: 1580, y: 760} },
+        { id: "e24", from: "n-s3", to: "n-s1", label: "телеметрия и алерты EDR", type: "direct", c: {x: 230, y: 1165} },
+        { id: "e25", from: "n-s4", to: "n-s5", label: "классификация и доказательства compliance", type: "direct", c: {x: 520, y: 1210} },
         { id: "e29", from: "n-n2", to: "n-t1", label: "quality CI feed", type: "direct", c: {x: 1370, y: 610} },
-        { id: "e30", from: "n-t1", to: "n-t8", label: "", type: "direct", c: {x: 1260, y: 760} },
-        { id: "e31", from: "n-t8", to: "n-t2", label: "", type: "direct", c: {x: 1330, y: 730} },
-        { id: "e32", from: "n-t9", to: "n-t1", label: "", type: "direct", c: {x: 1330, y: 845} },
+        { id: "e30", from: "n-t1", to: "n-t8", label: "релизы, CAB и влияние на сервисы", type: "direct", c: {x: 1260, y: 760} },
+        { id: "e31", from: "n-t8", to: "n-t2", label: "коммуникации и окна релиза", type: "direct", c: {x: 1330, y: 730} },
+        { id: "e32", from: "n-t9", to: "n-t1", label: "оркестрация IT-процессов", type: "direct", c: {x: 1330, y: 845} },
         { id: "e33", from: "n-hub", to: "n-s2", label: "asset identity", type: "direct", c: {x: 680, y: 790} },
         { id: "e34", from: "n-s3", to: "n-s1", label: "endpoint incidents", type: "direct", c: {x: 290, y: 1160} },
         { id: "e35", from: "n-s1", to: "n-s5", label: "risk context", type: "direct", c: {x: 430, y: 1140} },
@@ -1381,7 +1422,7 @@
         { id: "e40", from: "n-f2", to: "n-f6", label: "entitlement/use", type: "direct", c: {x: 1810, y: 740} },
         { id: "e41", from: "n-c1", to: "n-f3", label: "cost usage", type: "direct", c: {x: 1980, y: 520} },
         { id: "e42", from: "n-hub", to: "n-b1", label: "KPI datasets", type: "direct", c: {x: 1650, y: 760} },
-        { id: "e43", from: "n-b1", to: "n-b2", label: "", type: "direct", c: {x: 2140, y: 1060} },
+        { id: "e43", from: "n-b1", to: "n-b2", label: "агрегированные KPI и дашборды", type: "direct", c: {x: 2140, y: 1060} },
         { id: "e44", from: "n-src2", to: "n-t1", label: "joiner/mover/leaver", type: "direct", c: {x: 740, y: 420} },
         { id: "e45", from: "n-src2", to: "n-src4", label: "оргструктура", type: "direct", c: {x: 330, y: 130} },
         { id: "e46", from: "n-src4", to: "n-s1", label: "access events", type: "direct", c: {x: 320, y: 760} },
@@ -1398,15 +1439,15 @@
         { id: "e18", from: "n-b1", to: "n-s1", label: "reference analytics", type: "alt", c: {x: 1200, y: 980} },
         { id: "e26", from: "z-fin", to: "z-itsm", label: "asset/financial context", type: "zone", c: {x: 1530, y: 560} },
         { id: "e27", from: "z-sec", to: "z-itsm", label: "risk context", type: "zone", c: {x: 860, y: 980} },
-        { id: "e54", from: "z-src", to: "z-disc", label: "", type: "zone", c: {x: 670, y: 80} },
-        { id: "e55", from: "z-disc", to: "z-norm", label: "", type: "zone", c: {x: 1270, y: 190} },
-        { id: "e56", from: "z-norm", to: "n-hub", label: "", type: "zone", c: {x: 1390, y: 540} },
-        { id: "e57", from: "z-itsm", to: "z-fin", label: "", type: "zone", c: {x: 1460, y: 770} },
-        { id: "e58", from: "z-itsm", to: "z-sec", label: "", type: "zone", c: {x: 760, y: 980} },
-        { id: "e59", from: "z-fin", to: "z-bi", label: "", type: "zone", c: {x: 2000, y: 900} },
-        { id: "e60", from: "z-sec", to: "z-bi", label: "", type: "zone", c: {x: 1340, y: 1160} },
-        { id: "e61", from: "z-ops", to: "z-itsm", label: "", type: "zone", c: {x: 1250, y: 980} },
-        { id: "e62", from: "z-cld", to: "z-disc", label: "", type: "zone", c: {x: 1760, y: 170} },
+        { id: "e54", from: "z-src", to: "z-disc", label: "первичные данные в discovery", type: "zone", c: {x: 670, y: 80} },
+        { id: "e55", from: "z-disc", to: "z-norm", label: "сырой инвентарь в нормализацию", type: "zone", c: {x: 1270, y: 190} },
+        { id: "e56", from: "z-norm", to: "n-hub", label: "качественный CI в golden record", type: "zone", c: {x: 1390, y: 540} },
+        { id: "e57", from: "z-itsm", to: "z-fin", label: "контекст сервисов и активов/затрат", type: "zone", c: {x: 1460, y: 770} },
+        { id: "e58", from: "z-itsm", to: "z-sec", label: "риски и инциденты в ITSM", type: "zone", c: {x: 760, y: 980} },
+        { id: "e59", from: "z-fin", to: "z-bi", label: "финансы и активы в отчётность", type: "zone", c: {x: 2000, y: 900} },
+        { id: "e60", from: "z-sec", to: "z-bi", label: "риск и compliance в аналитике", type: "zone", c: {x: 1340, y: 1160} },
+        { id: "e61", from: "z-ops", to: "z-itsm", label: "события и метрики в управление сервисами", type: "zone", c: {x: 1250, y: 980} },
+        { id: "e62", from: "z-cld", to: "z-disc", label: "облачные ресурсы в инвентаризацию", type: "zone", c: {x: 1760, y: 170} },
         { id: "e63", from: "n-s4", to: "n-s5", label: "data classification", type: "alt", c: {x: 540, y: 1240} },
         { id: "e64", from: "n-c2", to: "n-hub", label: "policy tags", type: "alt", c: {x: 1680, y: 360} },
         { id: "e65", from: "n-t2", to: "n-hub", label: "enrichment", type: "alt", c: {x: 1130, y: 620} },
@@ -2002,7 +2043,10 @@
           out.push(`Узел «${title}» (${n.id}): нет листа в KB.classSheets — для связей не подтягиваются функции (allFunctions / topFunctions).`);
         } else {
           const d = sheet.data;
-          const hasFns = sheetHasAllFunctions(d) || listFromValue(d?.topFunctions).length > 0;
+          const hasFns =
+            sheetHasAllFunctions(d) ||
+            listFromValue(d?.topFunctions).length > 0 ||
+            (typeof d?.functionCount === "number" && d.functionCount > 0 && d.lazySheet);
           if (!hasFns) {
             out.push(`Лист «${sheet.key}» (${n.id}): нет списка функций (ни allFunctions, ни topFunctions).`);
           }
