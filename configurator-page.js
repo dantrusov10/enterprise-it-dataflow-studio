@@ -96,6 +96,8 @@
   let CFG_MX_FILTER = "all";
   /** Выбор функций KB по тезисам: индекс тезиса → набор ключей строк функций. */
   const corrState = { thesisPicks: new Map() };
+  /** Свободный режим: второй клик «Подобрать бандл» строит таблицу бандла после корреляции. */
+  let FREE_BUNDLE_STEP2 = false;
 
   const RU_STEM_SUFFIXES = [
     "иями","ями","остями","ях","ах","ами","ого","ему","ому","ыми","ех","ох","им","ым","ую","юю","ых","их","ая","ое","ые","ий","ой","ей","ем","ам","ям","ию","ия","ие","ов","ев","ть","ся","сь","ла","ли","ло","на","но","ны","ет","ют","ат","ят","ить","ать","ение","ения","ости","ания","ован","ирован","ельн","ество","нн","лись"
@@ -358,6 +360,20 @@
     return { title, body };
   }
 
+  /** Быстрый скоринг узла без подгрузки lazy‑листов (ускоряет подбор в разы). */
+  function buildNodeSearchItemShallow(node) {
+    const ref = classRefByNode(node)?.data || {};
+    const sheet = classSheetByNode(node)?.data || {};
+    const funcList = listFromValue(sheet.topFunctions?.length ? sheet.topFunctions : sheet.allFunctions);
+    const functionsText = funcList
+      .slice(0, 24)
+      .map((f) => `${f.title || ""} ${f.general || ""}`)
+      .join(" ");
+    const title = node.label.replace(/\n/g, " ");
+    const body = `${ref.what || ""} ${ref.techGoal || ""} ${ref.businessGoal || ""} ${ref.howWorks || ""} ${functionsText}`;
+    return { title, body };
+  }
+
   function esc(s) {
     return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
   }
@@ -495,10 +511,11 @@
   }
 
   async function buildAllFunctionRowsFromTop(top) {
+    const slice = top.slice(0, 12);
+    await Promise.all(slice.map((row) => ensureLazyForNode(row.node)));
     const rows = [];
     let seq = 0;
-    for (const row of top.slice(0, 12)) {
-      await ensureLazyForNode(row.node);
+    for (const row of slice) {
       const sh = classSheetByNode(row.node);
       const data = sh?.data;
       const list = listFromValue(data?.allFunctions?.length ? data.allFunctions : data?.topFunctions);
@@ -529,7 +546,7 @@
     return scored.slice(0, limit || 8);
   }
 
-  function mountCorrelationUi(rawText, top, tokens) {
+  function mountCorrelationUi(rawText, top, tokens, opts) {
     const host = document.getElementById("cfgCorrelationMount");
     if (!host) return;
     const allRows = lastRunCtx?.allFunctionRows;
@@ -542,13 +559,18 @@
       host.innerHTML = "";
       return;
     }
-    corrState.thesisPicks.clear();
+    if (!opts?.preservePicks) corrState.thesisPicks.clear();
     const bodyRows = theses
       .map((th, ti) => {
         const cands = candidatesForThesis(th, allRows, 10);
-        const sel = new Set();
-        for (const c of cands) {
-          if (c.score >= 4 && sel.size < 4) sel.add(c.row.key);
+        let sel = corrState.thesisPicks.get(ti);
+        if (!opts?.preservePicks) {
+          sel = new Set();
+          for (const c of cands) {
+            if (c.score >= 7 && sel.size < 2) sel.add(c.row.key);
+          }
+        } else if (!sel) {
+          sel = new Set();
         }
         corrState.thesisPicks.set(ti, sel);
         const candHtml =
@@ -591,25 +613,48 @@
     return { rows: all.slice(0, 120), modeLabel: "query-fallback" };
   }
 
-  function functionProductStatus(fRow, entry) {
-    const raw = tokenizeQuery(fRow.body || fRow.title);
-    const ftoks = expandQueryTokens(raw);
+  function strictTokensFromRow(fRow) {
+    const s = `${fRow.title || ""} ${fRow.body || ""}`;
+    return prepSearch(s)
+      .split(/[^a-z0-9а-яіїєґ]+/i)
+      .filter((t) => t.length >= 3)
+      .slice(0, 36);
+  }
+
+  function scoreFnProductStrict(fRow, entry) {
+    const toks = strictTokensFromRow(fRow);
+    if (!toks.length) return 0;
     const item = {
       title: `${entry.vendor} ${entry.product}`,
       body: `${entry.description || ""} ${entry.topFunctions || ""}`
     };
-    if (!ftoks.length) return "unk";
-    const sc = scoreSearchItem(item, ftoks);
-    if (sc >= 14) return "yes";
-    if (sc >= 6) return "part";
+    return scoreSearchItem(item, toks);
+  }
+
+  function productStatusFromRelative(sc, maxSc) {
+    if (maxSc < 1) return sc >= 2 ? "part" : sc >= 1 ? "part" : "unk";
+    const r = sc / maxSc;
+    if (sc >= 9 && r >= 0.82) return "yes";
+    if (r >= 0.35 || sc >= 5) return "part";
     if (sc >= 2) return "part";
     return "no";
   }
 
-  function catalogFunctionCoveragePct(entry, rows) {
-    if (!rows.length) return 0;
+  function rowVersusProductsStatuses(fRow, pickedCat) {
+    const scores = pickedCat.map((x) => scoreFnProductStrict(fRow, x.entry));
+    const maxSc = Math.max(0, ...scores);
+    return scores.map((sc) => productStatusFromRelative(sc, maxSc));
+  }
+
+  function catalogFunctionCoveragePct(entry, rows, pickedCat) {
+    const key = catalogEntryKey(entry);
+    const ix = pickedCat.findIndex((x) => x.key === key);
+    if (ix < 0 || !rows.length) return 0;
     let sum = 0;
-    for (const r of rows) sum += statusWeight(functionProductStatus(r, entry));
+    for (const r of rows) {
+      const sts = rowVersusProductsStatuses(r, pickedCat);
+      sum += statusWeight(sts[ix]);
+    }
     return Math.min(100, Math.round((100 * sum) / rows.length));
   }
 
@@ -723,21 +768,64 @@
     return { t: "Нет", c: "cfg-st-no" };
   }
 
+  function renderOutcomeSummary() {
+    const el = document.getElementById("cfgOutcomePanel");
+    const wrap = document.getElementById("cfgOutcomeWrap");
+    if (!el || !lastRunCtx) {
+      if (el) el.innerHTML = "";
+      if (wrap) wrap.classList.add("cfg-hidden");
+      return;
+    }
+    if (wrap) wrap.classList.remove("cfg-hidden");
+    const picked = (lastRunCtx.catalogEntries || []).filter((x) => CATALOG_PICK_KEYS.has(x.key));
+    if (!picked.length) {
+      el.innerHTML = `<p class="muted">Отметьте финальный набор продуктов вендоров выше — здесь появятся ссылки на схему и сводка.</p>`;
+      return;
+    }
+    const keys = mergeQueryFuncKeys();
+    const fnTitles = [];
+    for (const r of lastRunCtx.allFunctionRows || []) {
+      if (keys.has(r.key)) fnTitles.push(`${r.classLabel}: ${r.title}`);
+    }
+    const uniqFn = [...new Set(fnTitles)].slice(0, 40);
+    const classLinks = (lastRunCtx.topClasses || [])
+      .map((row) => {
+        const href = indexMapUrl(row.node.id, lastRunCtx.requirementSummary || "");
+        const lab = esc(row.classRefKey || row.node.label.replace(/\n/g, " ").trim());
+        return `<li><a href="${esc(href)}">${lab}</a> — на схеме с подсветкой запроса</li>`;
+      })
+      .join("");
+    const prodLines = picked
+      .map((x) => `<li><b>${esc(x.entry.vendor)}</b> — ${esc(x.entry.product)} <span class="muted">(${esc(x.classLabel)})</span></li>`)
+      .join("");
+    el.innerHTML = `<div class="cfg-subh">Итоговый набор и паутина</div>
+      <p class="muted" style="margin:0 0 8px;">Продукты, отмеченные для финала, и классы из последнего подбора. Откройте ссылки, чтобы увидеть узлы на интерактивной схеме (параметр <code>pickNode</code> / <code>q</code>).</p>
+      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;">
+        <div style="flex:1;min-width:220px;"><b>Финальные продукты</b><ul style="margin:6px 0 0;padding-left:1.1rem;font-size:12px;">${prodLines}</ul></div>
+        <div style="flex:1;min-width:220px;"><b>Классы на схеме</b><ul style="margin:6px 0 0;padding-left:1.1rem;font-size:12px;">${classLinks || "<li class=\"muted\">Нет топ‑классов</li>"}</ul></div>
+      </div>
+      ${uniqFn.length ? `<div style="margin-top:10px;"><b>Функции из корреляции</b> (до 40):<div class="muted" style="font-size:11px;margin-top:4px;">${uniqFn.map(esc).join(" · ")}</div></div>` : ""}
+      <p class="muted" style="margin-top:10px;font-size:11px;">Полноценная «урезанная» паутина только под бандл — следующий шаг (отдельный лист / фильтр схемы).</p>`;
+  }
+
   function renderVendorDetail() {
     const host = document.getElementById("cfgVendorDetail");
     if (!host || !lastRunCtx) {
       if (host) host.innerHTML = `<p class="muted">Сначала выполните подбор — появятся продукты каталога и матрица по функциям листов.</p>`;
+      renderOutcomeSummary();
       return;
     }
     const catRows = lastRunCtx.catalogEntries || [];
     const pickedCat = catRows.filter((x) => CATALOG_PICK_KEYS.has(x.key));
     if (!pickedCat.length) {
       host.innerHTML = `<p class="muted">Отметьте один или несколько <b>продуктов из каталога</b> — покажем матрицу «Да / Нет / Частично / Неизвестно» по строкам функций (зона → класс → функция).</p>`;
+      renderOutcomeSummary();
       return;
     }
     const { rows: mRows, modeLabel, hitCount } = getVisibleMatrixRows();
     if (!mRows.length) {
       host.innerHTML = `<p class="muted">Нет строк функций в листах топ‑классов — выполните подбор классов ещё раз или уточните запрос.</p>`;
+      renderOutcomeSummary();
       return;
     }
     const qKeys = mergeQueryFuncKeys();
@@ -750,16 +838,16 @@
             ? `<p class="muted" style="font-size:11px;">Показаны только строки, отмеченные в корреляции (${hitCount || qKeys.size}).</p>`
             : "";
 
-    const allChecked = CFG_MX_FILTER === "all" ? " checked" : "";
-    const qChecked = CFG_MX_FILTER === "query" ? " checked" : "";
+    const allBtnCls = CFG_MX_FILTER === "all" ? " btn-primary" : "";
+    const qBtnCls = CFG_MX_FILTER === "query" ? " btn-primary" : "";
     const headProd = pickedCat
       .map((x) => `<th scope="col" class="cfg-mx-prod" title="${esc(x.entry.vendor + " — " + x.entry.product)}">${esc(x.entry.vendor)} — ${esc(x.entry.product)}</th>`)
       .join("");
     const body = mRows
       .map((r) => {
-        const cells = pickedCat
-          .map((x) => {
-            const st = functionProductStatus(r, x.entry);
+        const sts = rowVersusProductsStatuses(r, pickedCat);
+        const cells = sts
+          .map((st) => {
             const { t, c } = statusLabelRu(st);
             return `<td class="${c}">${esc(t)}</td>`;
           })
@@ -769,15 +857,15 @@
       .join("");
 
     const pctCat = pickedCat.map((x) => {
-      const pct = catalogFunctionCoveragePct(x.entry, mRows);
+      const pct = catalogFunctionCoveragePct(x.entry, mRows, pickedCat);
       return `<div style="flex:1;min-width:120px;"><div class="muted" style="font-size:11px;">${esc(x.entry.vendor)} — ${esc(x.entry.product)}</div><div class="cfg-pct">${pct}%</div><div class="muted" style="font-size:10px;">по видимым строкам функций</div></div>`;
     });
 
     host.innerHTML = `
-      <div class="cfg-mx-filt" role="radiogroup" aria-label="Фильтр строк матрицы">
+      <div class="cfg-mx-filt" role="toolbar" aria-label="Фильтр строк матрицы">
         <span class="muted" style="font-size:11px;font-weight:600;">Строки матрицы:</span>
-        <label><input type="radio" name="cfgMxFilter" value="all"${allChecked} /> все функции топ‑классов</label>
-        <label><input type="radio" name="cfgMxFilter" value="query"${qChecked} /> только по отмеченным в корреляции</label>
+        <button type="button" class="btn cfg-mx-tog${allBtnCls}" data-cfg-mx="all">все функции топа</button>
+        <button type="button" class="btn cfg-mx-tog${qBtnCls}" data-cfg-mx="query">только отмеченные в корреляции</button>
       </div>
       ${filterHint}
       <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;margin-top:8px;">${pctCat.join("")}</div>
@@ -785,8 +873,9 @@
         <thead><tr><th scope="col">Зона</th><th scope="col">Класс</th><th scope="col">Функция (лист KB)</th>${headProd}</tr></thead>
         <tbody>${body}</tbody>
       </table></div>
-      <div class="cfg-composite"><b>Примечание</b>: оценка в ячейке — пересечение текста <i>конкретной функции</i> с карточкой продукта (описание + заявленные функции). Строки с зелёной подсветкой — отмечены вами в корреляции «ввод ↔ KB».</div>
+      <div class="cfg-composite"><b>Примечание</b>: оценка в ячейке — пересечение текста <i>конкретной функции</i> с карточкой продукта (без «раздувания» тезауруса), внутри строки продукты сравниваются между собой. Строки с зелёной подсветкой — отмечены в корреляции «ввод ↔ KB».</div>
     `;
+    renderOutcomeSummary();
   }
 
   function renderVendorPick() {
@@ -818,6 +907,7 @@
         renderVendorDetail();
       });
     });
+    renderOutcomeSummary();
   }
 
   function buildClassCardHtml(row, hl, options) {
@@ -877,7 +967,7 @@
   }
 
   async function runModeZones(statusEl, resultsEl, outputKind) {
-    const globalTa = document.getElementById("cfgGlobalContext");
+    const globalTa = document.getElementById("cfgZonesGlobalContext");
     const zoneRows = Array.from(document.querySelectorAll(".cfg-zone-row"));
     const zoneQueries = [];
     for (const row of zoneRows) {
@@ -909,8 +999,7 @@
 
     const scored = [];
     for (const n of MAP.nodes) {
-      await ensureLazyForNode(n);
-      const item = buildNodeSearchItem(n);
+      const item = buildNodeSearchItemShallow(n);
       const refMeta = classRefByNode(n);
       const sheetMeta = classSheetByNode(n);
       const classRefKey = refMeta?.key || "";
@@ -1010,11 +1099,14 @@
   async function runModeFree(statusEl, resultsEl, outputKind) {
     const ta = document.getElementById("cfgFreeText");
     const raw = String(ta?.value || "").trim();
-    const rawToks = tokenizeQuery(raw);
+    const globalFree = String(document.getElementById("cfgGlobalContext")?.value || "").trim();
+    const lineFns = getFreeFunctionLineTexts();
+    const combinedRaw = [raw, globalFree, ...lineFns].filter(Boolean).join("\n").trim();
+    const rawToks = tokenizeQuery(combinedRaw);
     const tokens = expandQueryTokens(rawToks);
 
     if (!tokens.length) {
-      if (statusEl) statusEl.textContent = "Введите абзац скоупа (слова от 2 букв; лучше 3+ для устойчивости).";
+      if (statusEl) statusEl.textContent = "Введите абзац скоупа и/или строки функций (слова от 2 букв; лучше 3+).";
       resultsEl.innerHTML = "";
       lastRunCtx = null;
       CATALOG_PICK_KEYS = new Set();
@@ -1040,8 +1132,7 @@
 
     const scored = [];
     for (const n of MAP.nodes) {
-      await ensureLazyForNode(n);
-      const item = buildNodeSearchItem(n);
+      const item = buildNodeSearchItemShallow(n);
       const refMeta = classRefByNode(n);
       const sheetMeta = classSheetByNode(n);
       const classRefKey = refMeta?.key || "";
@@ -1077,7 +1168,7 @@
     });
 
     const top = scored.slice(0, 16);
-    const hl = mergeHighlightQuery([raw]);
+    const hl = mergeHighlightQuery([combinedRaw]);
 
     const zoneBlock =
       topZones.length > 0
@@ -1126,14 +1217,24 @@
       corrMount +
       `<div class="cfg-subh">Классы решений</div>` +
       top.map((row) => buildClassCardHtml(row, hl, { mode: "free" })).join("");
-    if (outputKind === "bundle") {
+    const bundleStep1Extra = `<div class="panel" style="margin-top:14px;padding:12px 14px;">
+      <p class="muted" style="margin:0 0 10px;"><b>Шаг 1.</b> В таблице корреляции отметьте функции KB, которые соответствуют вашему запросу. Затем нажмите «Шаг 2» — построится таблица бандла (топ‑3 на класс).</p>
+      <button type="button" class="btn btn-primary" id="cfgFinalizeFreeBundleBtn">Шаг 2: подобрать бандл</button>
+    </div>`;
+    const wasSecondBundlePass = outputKind === "bundle" && FREE_BUNDLE_STEP2;
+    if (outputKind === "bundle" && !FREE_BUNDLE_STEP2) {
+      resultsEl.innerHTML = zoneBlock + corrMount + `<div class="cfg-subh">Классы (шаг 1 перед бандлом)</div>` + top.map((row) => buildClassCardHtml(row, hl, { mode: "free" })).join("") + bundleStep1Extra;
+    } else if (wasSecondBundlePass) {
       resultsEl.innerHTML = zoneBlock + corrMount + (await buildBundleHtmlFromTopClasses(top, tokens));
+      FREE_BUNDLE_STEP2 = false;
     } else {
       resultsEl.innerHTML = cardsHtml;
     }
 
-    corrState.thesisPicks.clear();
-    CFG_MX_FILTER = "all";
+    if (!wasSecondBundlePass) {
+      corrState.thesisPicks.clear();
+      CFG_MX_FILTER = "all";
+    }
     lastRunCtx = {
       mode: "free",
       outputKind,
@@ -1146,7 +1247,15 @@
     };
     renderVendorPick();
     renderVendorDetail();
-    mountCorrelationUi(raw, top, tokens);
+    mountCorrelationUi(combinedRaw, top, tokens, { preservePicks: wasSecondBundlePass });
+  }
+
+  function getFreeFunctionLineTexts() {
+    const host = document.getElementById("cfgFreeFuncLines");
+    if (!host) return [];
+    return [...host.querySelectorAll("input.cfg-free-func-line")]
+      .map((inp) => String(inp.value || "").trim())
+      .filter(Boolean);
   }
 
   function setCfgLoading(on, text) {
@@ -1165,7 +1274,14 @@
     const resultsEl = document.getElementById("cfgResults");
     if (!resultsEl) return;
     const kind = outputKind === "bundle" ? "bundle" : "classes";
-    setCfgLoading(true, kind === "bundle" ? "Подбор бандла…" : "Подбор классов…");
+    if (kind === "classes") FREE_BUNDLE_STEP2 = false;
+    let loadMsg = "Подбор классов…";
+    if (kind === "bundle") {
+      if (isFreeMode() && FREE_BUNDLE_STEP2) loadMsg = "Финальный бандл после корреляции…";
+      else if (isFreeMode()) loadMsg = "Шаг 1: классы и корреляция…";
+      else loadMsg = "Подбор бандла…";
+    }
+    setCfgLoading(true, loadMsg);
     resultsEl.innerHTML = "";
     try {
       if (kind === "bundle") await loadVendorsByClassCatalog();
@@ -1179,6 +1295,7 @@
       CATALOG_PICK_KEYS = new Set();
       corrState.thesisPicks.clear();
       CFG_MX_FILTER = "all";
+      FREE_BUNDLE_STEP2 = false;
       renderVendorPick();
       renderVendorDetail();
     } finally {
@@ -1189,13 +1306,20 @@
   function syncModeUi() {
     const zonesBlock = document.getElementById("cfgBlockZones");
     const freeBlock = document.getElementById("cfgBlockFree");
+    const gl = document.getElementById("cfgGlobalContextWrap");
+    const zw = document.getElementById("cfgZoneWizard");
     if (!zonesBlock || !freeBlock) return;
     if (isFreeMode()) {
       zonesBlock.classList.add("cfg-hidden");
       freeBlock.classList.remove("cfg-hidden");
+      if (gl) gl.classList.remove("cfg-hidden");
+      if (zw) zw.classList.add("cfg-hidden");
     } else {
       zonesBlock.classList.remove("cfg-hidden");
       freeBlock.classList.add("cfg-hidden");
+      if (gl) gl.classList.add("cfg-hidden");
+      if (zw) zw.classList.remove("cfg-hidden");
+      initZoneWizardUi();
     }
   }
 
@@ -1228,6 +1352,80 @@
       if (document.querySelectorAll(".cfg-zone-row").length <= 1) return;
       row.remove();
     });
+  }
+
+  function initZoneWizardUi() {
+    const zsel = document.getElementById("cfgWzZone");
+    const nhost = document.getElementById("cfgWzNodes");
+    if (!zsel || !nhost || zsel.dataset.bound === "1") return;
+    zsel.dataset.bound = "1";
+    zsel.innerHTML = MAP.zones.map((z) => `<option value="${esc(z.id)}">${esc(z.title)}</option>`).join("");
+    function renderWzNodes() {
+      const zid = zsel.value;
+      nhost.innerHTML = MAP.nodes
+        .filter((n) => n.zoneId === zid)
+        .map(
+          (n) =>
+            `<label style="display:block;font-size:11px;margin:3px 0;"><input type="checkbox" class="cfg-wz-node" value="${esc(
+              n.id
+            )}" /> ${esc(n.label.replace(/\n/g, " "))}</label>`
+        )
+        .join("");
+    }
+    zsel.addEventListener("change", renderWzNodes);
+    renderWzNodes();
+    document.getElementById("cfgWzLoadFns")?.addEventListener("click", async () => {
+      const ids = [...nhost.querySelectorAll("input.cfg-wz-node:checked")].map((x) => x.value);
+      const fwrap = document.getElementById("cfgWzFns");
+      if (!fwrap || !ids.length) return;
+      await Promise.all(ids.map((id) => ensureLazyForNode(nodeById(id))));
+      const lines = [];
+      for (const id of ids) {
+        const n = nodeById(id);
+        const sh = classSheetByNode(n);
+        const list = listFromValue(sh?.data?.allFunctions?.length ? sh.data.allFunctions : sh?.data?.topFunctions);
+        for (const f of list) {
+          if (String(f.type || "").toLowerCase().includes("категор")) continue;
+          const t = f.title || "—";
+          lines.push({ line: `${n.label.replace(/\n/g, " ").trim()}: ${t}` });
+        }
+      }
+      fwrap.innerHTML = lines
+        .map(
+          (x) =>
+            `<label class="cfg-corr-cand"><input type="checkbox" class="cfg-wz-fn" data-wz-line="${esc(x.line)}" /><span>${esc(
+              x.line
+            )}</span></label>`
+        )
+        .join("");
+    });
+    document.getElementById("cfgWzAddToZone")?.addEventListener("click", () => {
+      const picks = [...document.querySelectorAll("#cfgWzFns input.cfg-wz-fn:checked")]
+        .map((x) => x.getAttribute("data-wz-line"))
+        .filter(Boolean);
+      const ta = document.querySelector("#cfgZonesHost .cfg-zone-text");
+      if (!ta || !picks.length) return;
+      const add = picks.join("\n");
+      ta.value = ta.value.trim() ? `${ta.value.trim()}\n${add}` : add;
+    });
+    document.getElementById("cfgWzFnSearch")?.addEventListener("input", (ev) => {
+      const q = String(ev.target.value || "").trim().toLowerCase();
+      document.querySelectorAll("#cfgWzFns label.cfg-corr-cand").forEach((lab) => {
+        const t = lab.textContent || "";
+        lab.style.display = !q || t.toLowerCase().includes(q) ? "block" : "none";
+      });
+    });
+  }
+
+  function ensureDefaultFreeFuncLine() {
+    const h = document.getElementById("cfgFreeFuncLines");
+    if (!h || h.querySelector("input.cfg-free-func-line")) return;
+    const i = document.createElement("input");
+    i.type = "text";
+    i.className = "search-input cfg-free-func-line";
+    i.style.marginTop = "6px";
+    i.placeholder = "Одна строка — одна ожидаемая функция";
+    h.appendChild(i);
   }
 
   function initChips() {
@@ -1276,11 +1474,18 @@
       }
     });
 
-    document.getElementById("cfgVendorPanel")?.addEventListener("change", (e) => {
-      const t = e.target;
-      if (t instanceof HTMLInputElement && t.name === "cfgMxFilter") {
-        CFG_MX_FILTER = t.value === "query" ? "query" : "all";
+    document.addEventListener("click", (e) => {
+      const mx = e.target.closest("button.cfg-mx-tog");
+      if (mx && document.getElementById("cfgVendorDetail")?.contains(mx)) {
+        CFG_MX_FILTER = mx.getAttribute("data-cfg-mx") === "query" ? "query" : "all";
         renderVendorDetail();
+        return;
+      }
+      if (e.target.id === "cfgFinalizeFreeBundleBtn") {
+        FREE_BUNDLE_STEP2 = true;
+        requestAnimationFrame(() => {
+          void runConfigurator("bundle");
+        });
       }
     });
 
@@ -1315,5 +1520,17 @@
       });
     });
     syncModeUi();
+    initZoneWizardUi();
+    ensureDefaultFreeFuncLine();
+    document.getElementById("cfgAddFreeFuncLine")?.addEventListener("click", () => {
+      const h = document.getElementById("cfgFreeFuncLines");
+      if (!h) return;
+      const i = document.createElement("input");
+      i.type = "text";
+      i.className = "search-input cfg-free-func-line";
+      i.style.marginTop = "6px";
+      i.placeholder = "Функция / требование";
+      h.appendChild(i);
+    });
   });
 })();

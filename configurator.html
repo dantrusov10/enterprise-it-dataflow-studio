@@ -68,6 +68,7 @@
     .cfg-mode-row { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-bottom: 14px; align-items: flex-start; }
     .cfg-mode-row label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; font-size: 13px; max-width: 42ch; }
     .cfg-mode-row input { margin-top: 3px; }
+    .cfg-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
     .cfg-hidden { display: none !important; }
     .cfg-subh { font-size: 13px; font-weight: 700; margin: 16px 0 8px; color: #0f172a; }
     .cfg-zone-rec { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
@@ -129,7 +130,7 @@
   </style>
   <script src="./enterprise-it-dataflow-knowledge.js?v=kb20260208"></script>
   <script src="./vendor-catalog-meta.js"></script>
-  <script src="./configurator-page.js?v=8"></script>
+  <script src="./configurator-page.js?v=9"></script>
 </head>
 <body>
   <div class="page">
@@ -149,6 +150,30 @@
     </section>
 
     <div id="cfgBlockZones">
+      <section class="panel" id="cfgZoneWizard">
+        <h2>Сбор по зонам карты (без свободного абзаца)</h2>
+        <p class="muted" style="margin:0 0 12px;">
+          Выберите зону паутины, отметьте классы (узлы), загрузите функции из KB, отфильтруйте поиском и добавьте приоритетные строки в первую зону требований ниже. Повторите для других зон при необходимости.
+        </p>
+        <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;">
+          <div style="flex:1;min-width:200px;">
+            <label class="muted" style="font-size:12px;display:block;">Зона паутины
+              <select id="cfgWzZone" class="search-input" style="margin-top:6px;"></select>
+            </label>
+            <div class="muted" style="font-size:11px;margin-top:8px;">Классы в зоне</div>
+            <div id="cfgWzNodes" style="max-height:200px;overflow:auto;margin-top:6px;border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#fafafa;"></div>
+            <button type="button" class="btn" id="cfgWzLoadFns" style="margin-top:10px;">Загрузить функции выбранных классов</button>
+          </div>
+          <div style="flex:1;min-width:220px;">
+            <label class="muted" style="font-size:12px;display:block;">Поиск по функциям
+              <input type="search" id="cfgWzFnSearch" class="search-input" style="margin-top:6px;" placeholder="Ключевые слова…" autocomplete="off" />
+            </label>
+            <div id="cfgWzFns" class="cfg-corr-scroll" style="margin-top:8px;max-height:240px;border:1px solid #e2e8f0;border-radius:8px;padding:8px;background:#fff;"></div>
+            <button type="button" class="btn btn-primary" id="cfgWzAddToZone" style="margin-top:10px;">Добавить в первую зону</button>
+          </div>
+        </div>
+      </section>
+
       <section class="panel">
         <h2>Зоны требований (= зоны паутины)</h2>
         <p class="muted" style="margin:0 0 12px;">Названия зон можно править. Пустые поля не участвуют в скоринге.</p>
@@ -157,17 +182,26 @@
       </section>
 
       <section class="panel">
-        <h2>Общий контекст (необязательно)</h2>
-        <p class="muted" style="margin:0 0 8px;">Добавляется ко всем классам как дополнительный скор.</p>
-        <textarea id="cfgGlobalContext" class="search-input" rows="2" placeholder="Например: гибрид Azure + on-prem, регуляторика…"></textarea>
+        <h2>Общий контекст для всех зон (необязательно)</h2>
+        <p class="muted" style="margin:0 0 8px;">Дополнительный скор ко всем зонам; без «свободного абзаца» как в другом режиме.</p>
+        <textarea id="cfgZonesGlobalContext" class="search-input" rows="2" placeholder="Например: гибрид Azure + on-prem, регуляторика…"></textarea>
       </section>
     </div>
 
     <div id="cfgBlockFree" class="cfg-hidden">
       <section class="panel">
-        <h2>Скоуп одним текстом</h2>
-        <p class="muted" style="margin:0 0 8px;">Опишите задачу клиента как получится — система оценит зоны паутины по справочнику зон и подберёт классы.</p>
-        <textarea id="cfgFreeText" class="search-input" rows="8" placeholder="Например: нужно закрыть инциденты и заявки, видеть активы и софт, готовить отчёт по лицензиям Microsoft и реагировать на уязвимости…"></textarea>
+        <h2>Скоуп и ожидаемые функции</h2>
+        <p class="muted" style="margin:0 0 8px;">Общий абзац плюс при необходимости отдельные строки: <b>одна строка — одна ожидаемая функция</b> (кнопка «Добавить функцию»).</p>
+        <textarea id="cfgFreeText" class="search-input" rows="6" placeholder="Например: нужно закрыть инциденты и заявки, видеть активы и софт, готовить отчёт по лицензиям Microsoft и реагировать на уязвимости…"></textarea>
+        <p class="muted" style="margin:10px 0 4px;font-size:12px;">Строки функций (по желанию):</p>
+        <div id="cfgFreeFuncLines"></div>
+        <button type="button" class="btn btn-ghost" id="cfgAddFreeFuncLine" style="margin-top:6px;">+ Добавить функцию</button>
+      </section>
+
+      <section class="panel" id="cfgGlobalContextWrap">
+        <h2>Общий контекст (необязательно)</h2>
+        <p class="muted" style="margin:0 0 8px;">Добавляется к свободному режиму как дополнительный скор.</p>
+        <textarea id="cfgGlobalContext" class="search-input" rows="2" placeholder="Например: гибрид Azure + on-prem, регуляторика…"></textarea>
       </section>
     </div>
 
@@ -222,7 +256,13 @@
       <div id="cfgVendorDetail"></div>
     </section>
 
-    <span class="badge">Конфигуратор v8 · корреляция ввод↔KB · матрица зона–класс–функция</span>
+    <section class="panel cfg-hidden" id="cfgOutcomeWrap">
+      <h2>Итоговый набор и схема</h2>
+      <p class="muted" style="margin:0 0 8px;">Появляется после успешного подбора. Отметьте финальные продукты вендоров — здесь сводка и ссылки на паутину.</p>
+      <div id="cfgOutcomePanel"></div>
+    </section>
+
+    <span class="badge">Конфигуратор v9 · этапы бандла · мастер зон · матрица</span>
   </div>
 </body>
 </html>
