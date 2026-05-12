@@ -693,10 +693,11 @@
     const nodeId = params.get("nodeId") || "";
     const label = params.get("label") || "Класс";
     const sheetKey = params.get("sheetKey") || "";
+    const vendorFocusList = params.getAll("vendorFocus").filter(Boolean);
 
     document.getElementById("pageTitle").textContent = label.replace(/\n/g, " ");
     document.getElementById("pageMeta").textContent = nodeId
-      ? `ID на схеме: ${nodeId}${sheetKey ? ` · лист KB: ${sheetKey}` : ""}`
+      ? `ID на схеме: ${nodeId}${sheetKey ? ` · лист KB: ${sheetKey}` : ""}${vendorFocusList.length ? ` · контекст вендоров: ${vendorFocusList.join(", ")}` : ""}`
       : "Откройте страницу по ссылке «Все функции…» из панели базы знаний.";
 
     const ref = classRefFromParams(nodeId, label);
@@ -714,7 +715,11 @@
         }
         const data = sheet?.data;
         const cat = await ensureVendorsCatalogDetail();
-        const vendorEntries = catalogEntriesForDetail(cat, ref, sheet, label);
+        let vendorEntries = catalogEntriesForDetail(cat, ref, sheet, label);
+        if (vendorFocusList.length) {
+          const lows = new Set(vendorFocusList.map((v) => String(v).trim().toLowerCase()));
+          vendorEntries = vendorEntries.filter((e) => lows.has(String(e.vendor || "").trim().toLowerCase()));
+        }
         document.getElementById("functionsBlock").innerHTML = renderAllFunctionsHtml(data, vendorEntries);
         buildTocFnLinks(data);
 

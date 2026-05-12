@@ -327,6 +327,7 @@
           <p class="hint" style="font-size:11px;margin:0 0 8px;line-height:1.35;">Два режима: по зонам паутины или один абзац скоупа — зоны+классы, затем эвристика вендоров. Переход на схему с узлом и подсветкой в базе.</p>
           <a class="btn" href="./configurator.html" style="display:block;text-align:center;text-decoration:none;box-sizing:border-box;">Открыть конфигуратор →</a>
         </div>
+        <div id="projectMapSidebarSection" class="sidebar-search-section" style="display:none;border-bottom:1px solid #e2e8f0;padding-bottom:10px;margin-bottom:4px;"></div>
         <div class="sidebar-view-section">
           <h3>Режим просмотра</h3>
           <label class="view-check"><input type="checkbox" id="viewEdgesDirect" checked /> Прямые связи классов</label>
@@ -359,7 +360,7 @@
           <button type="button" class="btn" id="kbGapsRefreshBtn" style="margin-bottom:6px;">Обновить отчёт</button>
           <div id="kbGapsReport" class="kb-gaps-report muted-text" style="font-size:11px;line-height:1.4;max-height:280px;overflow:auto;"></div>
         </div>
-        <span class="badge">v11 фильтр связей · class-detail fix</span>
+        <span class="badge">v12 проектная схема из конфигуратора</span>
       </div>
     </aside>
     <div class="workspace-wrap">
@@ -424,6 +425,8 @@
     const detailPrompt = document.getElementById("detailPrompt");
     const detailYes = document.getElementById("detailYes");
     const detailNo = document.getElementById("detailNo");
+
+    window.PROJECT_MAP_CTX = null;
 
     let scale = 1;
     let editMode = false;
@@ -1177,6 +1180,10 @@
       q.set("nodeId", node.id);
       q.set("label", label);
       if (sheetMeta?.key) q.set("sheetKey", sheetMeta.key);
+      if (window.PROJECT_MAP_CTX?.active) {
+        const vs = window.PROJECT_MAP_CTX.vendorsByNode?.[node.id];
+        if (vs?.length) for (const v of vs) q.append("vendorFocus", v);
+      }
       return `class-detail.html?${q.toString()}`;
     }
 
@@ -1192,7 +1199,14 @@
         await ensureVendorsCatalogKb();
         const ref = classRefByNode(node);
         const sheet = classSheetByNode(node);
-        const classVendorEntries = catalogEntriesForKbNode(ref, sheet, node);
+        let classVendorEntries = catalogEntriesForKbNode(ref, sheet, node);
+        if (window.PROJECT_MAP_CTX?.active) {
+          const allow = window.PROJECT_MAP_CTX.vendorsByNode?.[node.id];
+          if (allow?.length) {
+            const low = new Set(allow.map((v) => String(v).trim().toLowerCase()));
+            classVendorEntries = classVendorEntries.filter((e) => low.has(String(e.vendor || "").trim().toLowerCase()));
+          }
+        }
         const fnHtml = renderClassFunctionsHtml(sheet?.data, classVendorEntries);
         const detailHref = classDetailPageUrl(node, sheet);
         entityCard.innerHTML = `
@@ -1447,6 +1461,7 @@
     /** Открытие с конфигуратора: index.html?pickNode=n-f2&q=… */
     async function handleConfiguratorOpenQuery() {
       const p = new URLSearchParams(location.search);
+      if (p.get("projectMap") === "1") return;
       const nodeId = p.get("pickNode") || p.get("nodeId") || "";
       const q = (p.get("q") || p.get("highlight") || "").trim();
       if (!nodeId || !nodeById(nodeId)) return;
@@ -1822,6 +1837,133 @@
     function nodeById(id) { return state.nodes.find(n => n.id === id); }
     function zoneById(id) { return state.zones.find(z => z.id === id); }
     function edgeById(id) { return state.edges.find(e => e.id === id); }
+
+    const PROJECT_MAP_STORAGE_KEY = "enterprise_it_project_map_v1";
+
+    function reachableNodesMultiSource(edges, seeds) {
+      const adj = new Map();
+      for (const e of edges) {
+        if (e.type === "zone") continue;
+        const a = e.from;
+        const b = e.to;
+        if (!a || !b || !String(a).startsWith("n-") || !String(b).startsWith("n-")) continue;
+        if (!adj.has(a)) adj.set(a, []);
+        if (!adj.has(b)) adj.set(b, []);
+        adj.get(a).push(b);
+        adj.get(b).push(a);
+      }
+      const seen = new Set(seeds);
+      const stack = [...seeds];
+      while (stack.length) {
+        const u = stack.pop();
+        for (const v of adj.get(u) || []) {
+          if (!seen.has(v)) {
+            seen.add(v);
+            stack.push(v);
+          }
+        }
+      }
+      return seen;
+    }
+
+    function tryApplyProjectMapFromStorage() {
+      const p = new URLSearchParams(location.search);
+      if (p.get("projectMap") !== "1") return;
+      const raw = sessionStorage.getItem(PROJECT_MAP_STORAGE_KEY);
+      if (!raw) return;
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        return;
+      }
+      const seeds = Array.from(new Set((data.focusNodeIds || []).filter((id) => nodeById(id))));
+      if (!seeds.length) return;
+      const R = reachableNodesMultiSource(state.edges, seeds);
+      const zoneIds = new Set();
+      for (const nid of R) {
+        const n = nodeById(nid);
+        if (n?.zoneId) zoneIds.add(n.zoneId);
+      }
+      const zones = state.zones.filter((z) => zoneIds.has(z.id));
+      const nodes = state.nodes.filter((n) => R.has(n.id));
+      const nodeSet = new Set(nodes.map((n) => n.id));
+      const zoneSet = new Set(zones.map((z) => z.id));
+      const edges = state.edges.filter((e) => {
+        if (e.type === "zone") return zoneSet.has(e.from) && zoneSet.has(e.to);
+        return nodeSet.has(e.from) && nodeSet.has(e.to);
+      });
+      state.zones = zones;
+      state.nodes = nodes;
+      state.edges = edges;
+      window.PROJECT_MAP_CTX = {
+        active: true,
+        vendorsByNode: data.vendorsByNode || {},
+        picks: data.picks || [],
+        clientInfra: Array.isArray(data.clientInfra) ? data.clientInfra : [],
+        requirementSummary: data.requirementSummary || ""
+      };
+      const pmHost = document.getElementById("projectMapSidebarSection");
+      if (pmHost) {
+        pmHost.style.display = "block";
+        pmHost.innerHTML = buildProjectMapSidebarHtml();
+        wireProjectMapSidebar();
+      }
+    }
+
+    function buildProjectMapSidebarHtml() {
+      const ctx = window.PROJECT_MAP_CTX;
+      const nClass = state.nodes.length;
+      const nZones = state.zones.length;
+      const nEdges = state.edges.length;
+      const infra = (ctx?.clientInfra || [])
+        .map((row) => {
+          const t = esc(String(row.text != null ? row.text : row.label != null ? row.label : ""));
+          return `<li style="font-size:11px;margin:4px 0;line-height:1.35;">${t}</li>`;
+        })
+        .join("") || '<li class="muted-text" style="font-size:11px;">Пока пусто — добавьте источники данных и внедрённые технологии.</li>';
+      return `
+        <h3>Проект по конфигуратору</h3>
+        <p class="hint" style="font-size:11px;margin:0 0 8px;line-height:1.35;">Урезанная схема: <b>${nClass}</b> классов, <b>${nZones}</b> зон, <b>${nEdges}</b> связей (все рёбра между оставшимися узлами и зонами). Класс на карте → база с фильтром по выбранным вендорам.</p>
+        <a class="btn" href="./index.html" style="display:block;text-align:center;text-decoration:none;box-sizing:border-box;margin-bottom:8px;">Полная схема →</a>
+        <div style="font-size:11px;margin-bottom:6px;"><b>Выбранные продукты</b></div>
+        <ul style="margin:0 0 10px;padding-left:1.1rem;font-size:11px;max-height:160px;overflow:auto;">${(ctx?.picks || [])
+          .slice(0, 32)
+          .map((p) => `<li>${esc(p.vendor)} — ${esc(p.product)}</li>`)
+          .join("")}</ul>
+        <div style="font-size:11px;margin-bottom:4px;"><b>Инфраструктура клиента</b></div>
+        <ul id="pmInfraList" style="margin:0 0 8px;padding-left:1.1rem;">${infra}</ul>
+        <textarea id="pmInfraInput" class="search-input" rows="2" placeholder="Источник данных, уже внедрённая система…" style="font-size:12px;margin-bottom:6px;"></textarea>
+        <button type="button" class="btn" id="pmInfraAddBtn">Добавить</button>
+      `;
+    }
+
+    function wireProjectMapSidebar() {
+      document.getElementById("pmInfraAddBtn")?.addEventListener("click", () => {
+        const ta = document.getElementById("pmInfraInput");
+        const line = ta?.value?.trim();
+        if (!line) return;
+        let data = {};
+        try {
+          const raw = sessionStorage.getItem(PROJECT_MAP_STORAGE_KEY);
+          if (raw) data = JSON.parse(raw);
+        } catch {
+          data = {};
+        }
+        if (!Array.isArray(data.clientInfra)) data.clientInfra = [];
+        data.clientInfra.push({ text: line, id: `infra-${Date.now()}` });
+        try {
+          sessionStorage.setItem(PROJECT_MAP_STORAGE_KEY, JSON.stringify(data));
+        } catch (e) {
+          console.warn(e);
+          return;
+        }
+        if (window.PROJECT_MAP_CTX) window.PROJECT_MAP_CTX.clientInfra = data.clientInfra;
+        const ul = document.getElementById("pmInfraList");
+        if (ul) ul.insertAdjacentHTML("beforeend", `<li style="font-size:11px;margin:4px 0;line-height:1.35;">${esc(line)}</li>`);
+        if (ta) ta.value = "";
+      });
+    }
 
     function nodeRect(n) {
       if (n.hub) return { x: n.x, y: n.y, w: 120, h: 120 };
@@ -2956,6 +3098,7 @@
       }
     }, true);
 
+    tryApplyProjectMapFromStorage();
     initViewFiltersUi();
     applyCleanLayout();
     recomputeEdgeOrthos();

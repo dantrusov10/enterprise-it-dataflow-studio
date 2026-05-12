@@ -99,6 +99,9 @@
   /** Свободный режим: второй клик «Подобрать бандл» строит таблицу бандла после корреляции. */
   let FREE_BUNDLE_STEP2 = false;
 
+  /** Общий ключ с index.html для передачи выбора вендоров на урезанную схему. */
+  const PROJECT_MAP_STORAGE_KEY = "enterprise_it_project_map_v1";
+
   const RU_STEM_SUFFIXES = [
     "иями","ями","остями","ях","ах","ами","ого","ему","ому","ыми","ех","ох","им","ым","ую","юю","ых","их","ая","ое","ые","ий","ой","ей","ем","ам","ям","ию","ия","ие","ов","ев","ть","ся","сь","ла","ли","ло","на","но","ны","ет","ют","ат","ят","ить","ать","ение","ения","ости","ания","ован","ирован","ельн","ество","нн","лись"
   ];
@@ -476,7 +479,7 @@
         const body = `${e.description || ""} ${e.topFunctions || ""}`;
         const pickScore = scoreSearchItem({ title, body }, tokens);
         const cls = row.classRefKey || row.sheetKey || row.node.label.replace(/\n/g, " ").trim();
-        map.set(key, { key, entry: e, pickScore, classLabel: cls });
+        map.set(key, { key, entry: e, pickScore, classLabel: cls, nodeId: row.node.id });
       }
     }
     return [...map.values()].sort((a, b) => b.pickScore - a.pickScore).slice(0, 48);
@@ -785,6 +788,56 @@
     return { t: "Нет", c: "cfg-st-no" };
   }
 
+  function buildProjectMapPayload() {
+    if (!lastRunCtx) return null;
+    const entries = (lastRunCtx.catalogEntries || []).filter((x) => CATALOG_PICK_KEYS.has(x.key));
+    if (!entries.length) return null;
+    const focusNodeIds = [];
+    const seen = new Set();
+    for (const x of entries) {
+      const nid = x.nodeId;
+      if (nid && !seen.has(nid)) {
+        seen.add(nid);
+        focusNodeIds.push(nid);
+      }
+    }
+    if (!focusNodeIds.length) return null;
+    const picks = entries.map((x) => ({
+      key: x.key,
+      vendor: x.entry.vendor,
+      product: x.entry.product,
+      nodeId: x.nodeId,
+      classLabel: x.classLabel
+    }));
+    const vendorsByNode = {};
+    for (const x of entries) {
+      if (!x.nodeId) continue;
+      if (!vendorsByNode[x.nodeId]) vendorsByNode[x.nodeId] = [];
+      const v = x.entry.vendor;
+      if (!vendorsByNode[x.nodeId].includes(v)) vendorsByNode[x.nodeId].push(v);
+    }
+    return {
+      v: 1,
+      focusNodeIds,
+      picks,
+      vendorsByNode,
+      clientInfra: [],
+      requirementSummary: lastRunCtx.requirementSummary || ""
+    };
+  }
+
+  function openProjectMapFromConfigurator() {
+    const data = buildProjectMapPayload();
+    if (!data) return;
+    try {
+      sessionStorage.setItem(PROJECT_MAP_STORAGE_KEY, JSON.stringify(data));
+    } catch (e) {
+      console.warn(e);
+      return;
+    }
+    window.open("index.html?projectMap=1", "_blank", "noopener,noreferrer");
+  }
+
   function renderOutcomeSummary() {
     const el = document.getElementById("cfgOutcomePanel");
     const wrap = document.getElementById("cfgOutcomeWrap");
@@ -796,33 +849,22 @@
     if (wrap) wrap.classList.remove("cfg-hidden");
     const picked = (lastRunCtx.catalogEntries || []).filter((x) => CATALOG_PICK_KEYS.has(x.key));
     if (!picked.length) {
-      el.innerHTML = `<p class="muted">Отметьте финальный набор продуктов вендоров выше — здесь появятся ссылки на схему и сводка.</p>`;
+      el.innerHTML = `<p class="muted">Отметьте финальный набор продуктов вендоров выше — затем откройте схему проекта.</p>`;
       return;
     }
-    const keys = mergeQueryFuncKeys();
-    const fnTitles = [];
-    for (const r of lastRunCtx.allFunctionRows || []) {
-      if (keys.has(r.key)) fnTitles.push(`${r.classLabel}: ${r.title}`);
-    }
-    const uniqFn = [...new Set(fnTitles)].slice(0, 40);
-    const classLinks = (lastRunCtx.topClasses || [])
-      .map((row) => {
-        const href = indexMapUrl(row.node.id, lastRunCtx.requirementSummary || "");
-        const lab = esc(row.classRefKey || row.node.label.replace(/\n/g, " ").trim());
-        return `<li><a href="${esc(href)}">${lab}</a> — на схеме с подсветкой запроса</li>`;
-      })
-      .join("");
-    const prodLines = picked
-      .map((x) => `<li><b>${esc(x.entry.vendor)}</b> — ${esc(x.entry.product)} <span class="muted">(${esc(x.classLabel)})</span></li>`)
-      .join("");
-    el.innerHTML = `<div class="cfg-subh">Итоговый набор и паутина</div>
-      <p class="muted" style="margin:0 0 8px;">Продукты, отмеченные для финала, и классы из последнего подбора. Откройте ссылки, чтобы увидеть узлы на интерактивной схеме (параметр <code>pickNode</code> / <code>q</code>).</p>
-      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;">
-        <div style="flex:1;min-width:220px;"><b>Финальные продукты</b><ul style="margin:6px 0 0;padding-left:1.1rem;font-size:12px;">${prodLines}</ul></div>
-        <div style="flex:1;min-width:220px;"><b>Классы на схеме</b><ul style="margin:6px 0 0;padding-left:1.1rem;font-size:12px;">${classLinks || "<li class=\"muted\">Нет топ‑классов</li>"}</ul></div>
+    const n = picked.length;
+    const canMap = !!buildProjectMapPayload();
+    el.innerHTML = `<div class="cfg-subh">Итоговый набор</div>
+      <p class="muted" style="margin:0 0 10px;">Выбрано продуктов в каталоге: <b>${n}</b>. На отдельной вкладке откроется схема только с классами и связями, которые относятся к этому выбору (прямые и косвенные через граф). На карте класс → база знаний с фильтром по выбранным вендорам для этого класса; на схеме можно дописать инфраструктуру клиента.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+        <button type="button" class="btn btn-primary" id="cfgOpenProjectMapBtn"${canMap ? "" : " disabled"}>Визуализировать на схеме</button>
+        ${canMap ? "" : `<span class="muted" style="font-size:11px;">Нет привязки к узлам схемы — выполните подбор ещё раз.</span>`}
       </div>
-      ${uniqFn.length ? `<div style="margin-top:10px;"><b>Функции из корреляции</b> (до 40):<div class="muted" style="font-size:11px;margin-top:4px;">${uniqFn.map(esc).join(" · ")}</div></div>` : ""}
-      <p class="muted" style="margin-top:10px;font-size:11px;">Полноценная «урезанная» паутина только под бандл — следующий шаг (отдельный лист / фильтр схемы).</p>`;
+      <details style="margin-top:12px;font-size:12px;"><summary class="muted" style="cursor:pointer;">Состав выбора</summary>
+        <ul style="margin:8px 0 0;padding-left:1.1rem;">${picked
+          .map((x) => `<li><b>${esc(x.entry.vendor)}</b> — ${esc(x.entry.product)} <span class="muted">(${esc(x.classLabel)})</span></li>`)
+          .join("")}</ul>
+      </details>`;
   }
 
   function renderVendorDetail() {
@@ -1506,6 +1548,10 @@
         requestAnimationFrame(() => {
           void runConfigurator("bundle");
         });
+        return;
+      }
+      if (e.target.id === "cfgOpenProjectMapBtn") {
+        openProjectMapFromConfigurator();
       }
     });
 
