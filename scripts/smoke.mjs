@@ -57,7 +57,18 @@ try {
 }
 console.log("index.html inline script: syntax OK");
 
+const cfgPagePath = path.join(root, "configurator-page.js");
+const cfgPageSrc = fs.readFileSync(cfgPagePath, "utf8");
+try {
+  new Function(cfgPageSrc);
+} catch (e) {
+  throw new Error(`configurator-page.js syntax: ${e.message}`);
+}
+console.log("configurator-page.js: syntax OK");
+
 if (!indexHtml.includes("knowledge-dock")) throw new Error("index.html missing knowledge-dock");
 if (!indexHtml.includes("visibleZoneFilterSet")) throw new Error("index.html missing view filters");
+if (!indexHtml.includes("configurator.html")) throw new Error("index.html missing link to configurator page");
+if (!indexHtml.includes("handleConfiguratorOpenQuery")) throw new Error("index.html missing deep-link handler");
 
 console.log("smoke: all checks passed");
