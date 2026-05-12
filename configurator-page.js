@@ -92,39 +92,10 @@
   let lastRunCtx = null;
   /** Ключи выбранных продуктов каталога (vendor\u0001product) для матрицы тем. */
   let CATALOG_PICK_KEYS = new Set();
-
-  const VENDOR_PROFILES = [
-    {
-      id: "v-itsm",
-      name: "Условный стек ITSM / ESM",
-      strong: "инцидент itsm change проблем релиз заявк ticket service каталог sla workflow bpm знания обращен дежурств major",
-      weak: "sam лиценз entitlement siem edr уязвим grc finops"
-    },
-    {
-      id: "v-fin",
-      name: "Условный стек ITAM / SAM / финансы",
-      strong: "sam лиценз itam актив entitlement авториз tco finops erp закуп списан капекс",
-      weak: "siem edr dlp инцидент itsm уязвим"
-    },
-    {
-      id: "v-sec",
-      name: "Условный стек SecOps / GRC",
-      strong: "siem soar уязвим vulnerab grc комплаенс edr pam dlp кибер soc форензик",
-      weak: "itam sam itsm finops cmdb"
-    },
-    {
-      id: "v-data",
-      name: "Условный стек CMDB / Discovery / качество данных",
-      strong: "cmdb ci golden дискавери discovery инвентар нормализ reconcil дедуп сопостав сигнатур recognition dataset",
-      weak: "лиценз инцидент siem"
-    },
-    {
-      id: "v-ops",
-      name: "Условный стек облако / мониторинг / SRE",
-      strong: "монитор observabil apm лог алерт cloud kubernetes k8s контейнер vpc s3 trace telemet sre событ correlat syslog",
-      weak: "лиценз grc itsm"
-    }
-  ];
+  /** Фильтр строк матрицы: все функции топа или только отмеченные в корреляции. */
+  let CFG_MX_FILTER = "all";
+  /** Выбор функций KB по тезисам: индекс тезиса → набор ключей строк функций. */
+  const corrState = { thesisPicks: new Map() };
 
   const RU_STEM_SUFFIXES = [
     "иями","ями","остями","ях","ах","ами","ого","ему","ому","ыми","ех","ох","им","ым","ую","юю","ых","их","ая","ое","ые","ий","ой","ей","ем","ам","ям","ию","ия","ие","ов","ев","ть","ся","сь","ла","ли","ло","на","но","ны","ет","ют","ат","ят","ить","ать","ение","ения","ости","ания","ован","ирован","ельн","ество","нн","лись"
@@ -503,29 +474,6 @@
     CATALOG_PICK_KEYS = next;
   }
 
-  function catalogThemeStatus(entry, gi, queryTokens) {
-    const extra = [];
-    for (const k of THESAURUS_GROUPS[gi]) extra.push(...tokenizeQuery(k));
-    const toks = expandQueryTokens([...queryTokens, ...extra]);
-    if (!toks.length) return "unk";
-    const item = {
-      title: `${entry.vendor} ${entry.product}`,
-      body: `${entry.description || ""} ${entry.topFunctions || ""}`
-    };
-    const sc = scoreSearchItem(item, toks);
-    if (sc >= 14) return "yes";
-    if (sc >= 5) return "part";
-    if (sc >= 1) return "part";
-    return "no";
-  }
-
-  function catalogCoveragePct(entry, themes, queryTokens) {
-    if (!themes.length) return 0;
-    let sum = 0;
-    for (const gi of themes) sum += statusWeight(catalogThemeStatus(entry, gi, queryTokens));
-    return Math.min(100, Math.round((100 * sum) / themes.length));
-  }
-
   function bundleFitLabel(sc, maxSc) {
     if (maxSc <= 0) return "Неизвестно";
     const r = sc / maxSc;
@@ -533,6 +481,136 @@
     if (r >= 0.28) return "Частично";
     if (sc > 0) return "Частично";
     return "Нет";
+  }
+
+  function splitTheses(text) {
+    const t = String(text || "").trim();
+    if (!t) return [];
+    const chunks = t
+      .split(/\n+|(?<=[.;!?])\s+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 6);
+    if (chunks.length) return chunks.slice(0, 20);
+    return [t];
+  }
+
+  async function buildAllFunctionRowsFromTop(top) {
+    const rows = [];
+    let seq = 0;
+    for (const row of top.slice(0, 12)) {
+      await ensureLazyForNode(row.node);
+      const sh = classSheetByNode(row.node);
+      const data = sh?.data;
+      const list = listFromValue(data?.allFunctions?.length ? data.allFunctions : data?.topFunctions);
+      const zt = row.mapZoneTitle || zoneById(row.node.zoneId)?.title || "—";
+      const cls = row.classRefKey || row.sheetKey || row.node.label.replace(/\n/g, " ").trim();
+      const nodeLabel = row.node.label.replace(/\n/g, " ").trim();
+      for (const f of list) {
+        if (String(f.type || "").toLowerCase().includes("категор")) continue;
+        const title = f.title || "без названия";
+        const body = [f.title, f.general, f.technical, f.business].filter(Boolean).join(" ");
+        const key = `${row.node.id}\u0001${sh?.key || ""}\u0001${seq}`;
+        rows.push({ key, zoneTitle: zt, classLabel: cls, nodeLabel, title, body, nodeId: row.node.id, sheetKey: sh?.key || "" });
+        seq += 1;
+      }
+    }
+    return rows;
+  }
+
+  function candidatesForThesis(thesis, allRows, limit) {
+    const toks = expandQueryTokens(tokenizeQuery(thesis));
+    if (!toks.length) return [];
+    const scored = [];
+    for (const r of allRows) {
+      const sc = scoreSearchItem({ title: r.title, body: r.body }, toks);
+      if (sc >= 1) scored.push({ row: r, score: sc });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, limit || 8);
+  }
+
+  function mountCorrelationUi(rawText, top, tokens) {
+    const host = document.getElementById("cfgCorrelationMount");
+    if (!host) return;
+    const allRows = lastRunCtx?.allFunctionRows;
+    if (!allRows?.length) {
+      host.innerHTML = `<p class="muted">Нет строк функций в листах топ‑классов для корреляции.</p>`;
+      return;
+    }
+    const theses = splitTheses(rawText);
+    if (!theses.length) {
+      host.innerHTML = "";
+      return;
+    }
+    corrState.thesisPicks.clear();
+    const bodyRows = theses
+      .map((th, ti) => {
+        const cands = candidatesForThesis(th, allRows, 10);
+        const sel = new Set();
+        for (const c of cands) {
+          if (c.score >= 4 && sel.size < 4) sel.add(c.row.key);
+        }
+        corrState.thesisPicks.set(ti, sel);
+        const candHtml =
+          cands.length > 0
+            ? cands
+                .map(({ row: r, score }) => {
+                  const on = sel.has(r.key) ? " checked" : "";
+                  const lab = `${r.zoneTitle} — ${r.classLabel}: ${r.title}`;
+                  return `<label class="cfg-corr-cand"><input type="checkbox" class="cfg-corr-fn" data-thesis-ix="${ti}" data-func-key="${encodeURIComponent(
+                    r.key
+                  )}"${on} /><span>${esc(lab)}</span></label>`;
+                })
+                .join("")
+            : `<span class="muted">Нет близких функций в топ‑классах — смягчите формулировку или расширьте подбор классов.</span>`;
+        return `<tr><td class="cfg-corr-thesis">${esc(th)}</td><td class="cfg-corr-cands">${candHtml}</td></tr>`;
+      })
+      .join("");
+    host.innerHTML = `<div class="cfg-corr-block">
+  <h3>Корреляция: ваш текст ↔ функции KB</h3>
+  <p class="muted" style="margin:0 0 8px;">Слева — фрагменты ввода; справа — примеры функций из листов классов в топе. Отметьте одну или несколько строк для каждого тезиса — они попадут в фильтр «только по введённым» в матрице ниже.</p>
+  <div class="cfg-corr-scroll"><table class="cfg-corr-two"><thead><tr><th scope="col">Вы ввели</th><th scope="col">Примеры функций (из KB)</th></tr></thead><tbody>${bodyRows}</tbody></table></div>
+</div>`;
+  }
+
+  function mergeQueryFuncKeys() {
+    const u = new Set();
+    corrState.thesisPicks.forEach((set) => {
+      for (const k of set) u.add(k);
+    });
+    return u;
+  }
+
+  function getVisibleMatrixRows() {
+    const all = lastRunCtx?.allFunctionRows || [];
+    if (CFG_MX_FILTER !== "query") return { rows: all.slice(0, 120), modeLabel: "all" };
+    const q = mergeQueryFuncKeys();
+    if (!q.size) return { rows: all.slice(0, 120), modeLabel: "query-empty" };
+    const hit = all.filter((r) => q.has(r.key));
+    if (hit.length) return { rows: hit.slice(0, 120), modeLabel: "query-hit", hitCount: hit.length };
+    return { rows: all.slice(0, 120), modeLabel: "query-fallback" };
+  }
+
+  function functionProductStatus(fRow, entry) {
+    const raw = tokenizeQuery(fRow.body || fRow.title);
+    const ftoks = expandQueryTokens(raw);
+    const item = {
+      title: `${entry.vendor} ${entry.product}`,
+      body: `${entry.description || ""} ${entry.topFunctions || ""}`
+    };
+    if (!ftoks.length) return "unk";
+    const sc = scoreSearchItem(item, ftoks);
+    if (sc >= 14) return "yes";
+    if (sc >= 6) return "part";
+    if (sc >= 2) return "part";
+    return "no";
+  }
+
+  function catalogFunctionCoveragePct(entry, rows) {
+    if (!rows.length) return 0;
+    let sum = 0;
+    for (const r of rows) sum += statusWeight(functionProductStatus(r, entry));
+    return Math.min(100, Math.round((100 * sum) / rows.length));
   }
 
   function getBundleDimFilters() {
@@ -631,35 +709,11 @@
     return out;
   }
 
-  function vendorThemeStatus(v, gi) {
-    const SH = prepSearch(v.strong);
-    const WH = prepSearch(v.weak);
-    let hitS = false;
-    let hitW = false;
-    for (const k of THESAURUS_GROUPS[gi]) {
-      const pk = prepSearch(k);
-      if (pk.length < 3) continue;
-      if (SH.includes(pk) || SH.includes(stemToken(pk))) hitS = true;
-      if (WH.includes(pk) || WH.includes(stemToken(pk))) hitW = true;
-    }
-    if (hitS && !hitW) return "yes";
-    if (hitW && !hitS) return "no";
-    if (hitS && hitW) return "part";
-    return "part";
-  }
-
   function statusWeight(st) {
     if (st === "yes") return 1;
     if (st === "part") return 0.45;
     if (st === "unk") return 0;
     return 0;
-  }
-
-  function vendorCoveragePct(v, activeThemes) {
-    if (!activeThemes.length) return 72;
-    let sum = 0;
-    for (const gi of activeThemes) sum += statusWeight(vendorThemeStatus(v, gi));
-    return Math.min(100, Math.round((100 * sum) / activeThemes.length));
   }
 
   function statusLabelRu(st) {
@@ -669,77 +723,69 @@
     return { t: "Нет", c: "cfg-st-no" };
   }
 
-  function selectedVendors() {
-    return VENDOR_PROFILES.filter((v) => document.getElementById(`cfg-v-${v.id}`)?.checked);
-  }
-
   function renderVendorDetail() {
     const host = document.getElementById("cfgVendorDetail");
     if (!host || !lastRunCtx) {
-      if (host) host.innerHTML = `<p class="muted">Сначала выполните подбор — появятся темы требований и расчёт по вендорам.</p>`;
+      if (host) host.innerHTML = `<p class="muted">Сначала выполните подбор — появятся продукты каталога и матрица по функциям листов.</p>`;
       return;
     }
-    const pickedStacks = selectedVendors();
-    const themes = lastRunCtx.activeThemeIndices;
-    const tokens = lastRunCtx.tokens || [];
     const catRows = lastRunCtx.catalogEntries || [];
     const pickedCat = catRows.filter((x) => CATALOG_PICK_KEYS.has(x.key));
-
-    if (!pickedStacks.length && !pickedCat.length) {
-      host.innerHTML = `<p class="muted">Отметьте один или несколько <b>условных стеков</b> и/или <b>продукты из каталога</b> — покажем матрицу «Да / Нет / Частично / Неизвестно» по темам из запроса.</p>`;
+    if (!pickedCat.length) {
+      host.innerHTML = `<p class="muted">Отметьте один или несколько <b>продуктов из каталога</b> — покажем матрицу «Да / Нет / Частично / Неизвестно» по строкам функций (зона → класс → функция).</p>`;
       return;
     }
-
-    if (!themes.length) {
-      host.innerHTML = `<p class="muted">По запросу не выделились темы из тезауруса — уточните формулировку (например: инциденты, CMDB, лицензии). Матрица появится, когда темы будут распознаны.</p>`;
+    const { rows: mRows, modeLabel, hitCount } = getVisibleMatrixRows();
+    if (!mRows.length) {
+      host.innerHTML = `<p class="muted">Нет строк функций в листах топ‑классов — выполните подбор классов ещё раз или уточните запрос.</p>`;
       return;
     }
+    const qKeys = mergeQueryFuncKeys();
+    const filterHint =
+      modeLabel === "query-empty"
+        ? `<p class="muted" style="font-size:11px;">Фильтр «только по отмеченным в корреляции»: пока ничего не отмечено — показаны все функции топа.</p>`
+        : modeLabel === "query-fallback"
+          ? `<p class="muted" style="font-size:11px;">Отмеченные функции не вошли в выгрузку топ‑классов — показан полный список функций.</p>`
+          : modeLabel === "query-hit"
+            ? `<p class="muted" style="font-size:11px;">Показаны только строки, отмеченные в корреляции (${hitCount || qKeys.size}).</p>`
+            : "";
 
-    const headCells = [
-      ...pickedStacks.map((v) => `<th scope="col">${esc(v.name)}</th>`),
-      ...pickedCat.map((x) => `<th scope="col" title="${esc(x.entry.vendor + " — " + x.entry.product)}">${esc(x.entry.vendor)} — ${esc(x.entry.product)}</th>`)
-    ].join("");
+    const allChecked = CFG_MX_FILTER === "all" ? " checked" : "";
+    const qChecked = CFG_MX_FILTER === "query" ? " checked" : "";
+    const headProd = pickedCat
+      .map((x) => `<th scope="col" class="cfg-mx-prod" title="${esc(x.entry.vendor + " — " + x.entry.product)}">${esc(x.entry.vendor)} — ${esc(x.entry.product)}</th>`)
+      .join("");
+    const body = mRows
+      .map((r) => {
+        const cells = pickedCat
+          .map((x) => {
+            const st = functionProductStatus(r, x.entry);
+            const { t, c } = statusLabelRu(st);
+            return `<td class="${c}">${esc(t)}</td>`;
+          })
+          .join("");
+        return `<tr${qKeys.has(r.key) ? ` class="cfg-fn-from-query"` : ""}><td>${esc(r.zoneTitle)}</td><td>${esc(r.classLabel)}</td><td>${esc(r.title)}</td>${cells}</tr>`;
+      })
+      .join("");
 
-    const rows = themes.map((gi) => {
-      const label = THEME_GROUP_LABELS[gi] || `Тема ${gi + 1}`;
-      const stackCells = pickedStacks.map((v) => {
-        const st = vendorThemeStatus(v, gi);
-        const { t, c } = statusLabelRu(st);
-        return `<td class="${c}">${esc(t)}</td>`;
-      });
-      const catCells = pickedCat.map((x) => {
-        const st = catalogThemeStatus(x.entry, gi, tokens);
-        const { t, c } = statusLabelRu(st);
-        return `<td class="${c}">${esc(t)}</td>`;
-      });
-      return `<tr><th scope="row">${esc(label)}</th>${stackCells.join("")}${catCells.join("")}</tr>`;
-    });
-
-    const head = `<tr><th scope="col">Тема из требований</th>${headCells}</tr>`;
-
-    const pctStack = pickedStacks.map((v) => {
-      const pct = vendorCoveragePct(v, themes);
-      return `<div style="flex:1;min-width:120px;"><div class="muted" style="font-size:11px;">${esc(v.name)}</div><div class="cfg-pct">${pct}%</div><div class="muted" style="font-size:10px;">условное покрытие тем</div></div>`;
-    });
     const pctCat = pickedCat.map((x) => {
-      const pct = catalogCoveragePct(x.entry, themes, tokens);
-      return `<div style="flex:1;min-width:120px;"><div class="muted" style="font-size:11px;">${esc(x.entry.vendor)} — ${esc(x.entry.product)}</div><div class="cfg-pct">${pct}%</div><div class="muted" style="font-size:10px;">по темам запроса</div></div>`;
+      const pct = catalogFunctionCoveragePct(x.entry, mRows);
+      return `<div style="flex:1;min-width:120px;"><div class="muted" style="font-size:11px;">${esc(x.entry.vendor)} — ${esc(x.entry.product)}</div><div class="cfg-pct">${pct}%</div><div class="muted" style="font-size:10px;">по видимым строкам функций</div></div>`;
     });
-    const pctBlocks = [...pctStack, ...pctCat].join("");
-
-    const composite = pickedStacks.length ? buildCompositePlan(pickedStacks, themes) : "Условные стеки не выбраны — черновик композиции по стекам не строится.";
-    const catNote =
-      pickedCat.length > 0
-        ? ` Отмечено продуктов каталога: ${pickedCat.length} — см. колонки матрицы и проценты выше.`
-        : "";
 
     host.innerHTML = `
-      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;">${pctBlocks}</div>
-      <table class="cfg-vt" aria-label="Покрытие тем вендорами и продуктами каталога">
-        <thead>${head}</thead>
-        <tbody>${rows.join("")}</tbody>
-      </table>
-      <div class="cfg-composite"><b>Черновик комплексной конфигурации</b> (по соотношению тем; заменится оптимизатором по матрице функций):<br/>${esc(composite)}${esc(catNote)}</div>
+      <div class="cfg-mx-filt" role="radiogroup" aria-label="Фильтр строк матрицы">
+        <span class="muted" style="font-size:11px;font-weight:600;">Строки матрицы:</span>
+        <label><input type="radio" name="cfgMxFilter" value="all"${allChecked} /> все функции топ‑классов</label>
+        <label><input type="radio" name="cfgMxFilter" value="query"${qChecked} /> только по отмеченным в корреляции</label>
+      </div>
+      ${filterHint}
+      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;margin-top:8px;">${pctCat.join("")}</div>
+      <div class="cfg-mx-scroll"><table class="cfg-vt cfg-mx-table" aria-label="Зона, класс, функция и покрытие продуктами">
+        <thead><tr><th scope="col">Зона</th><th scope="col">Класс</th><th scope="col">Функция (лист KB)</th>${headProd}</tr></thead>
+        <tbody>${body}</tbody>
+      </table></div>
+      <div class="cfg-composite"><b>Примечание</b>: оценка в ячейке — пересечение текста <i>конкретной функции</i> с карточкой продукта (описание + заявленные функции). Строки с зелёной подсветкой — отмечены вами в корреляции «ввод ↔ KB».</div>
     `;
   }
 
@@ -747,12 +793,9 @@
     const host = document.getElementById("cfgVendorPick");
     if (!host) return;
     const cat = lastRunCtx?.catalogEntries || [];
-    let html = `<div class="muted" style="font-size:11px;margin-bottom:6px;">Условные стеки портфеля (быстрая оценка по тезаурусу):</div>`;
-    html += VENDOR_PROFILES.map((v) => `
-      <label><input type="checkbox" id="cfg-v-${esc(v.id)}" data-vendor-id="${esc(v.id)}" /> ${esc(v.name)}</label>
-    `).join("");
+    let html = "";
     if (cat.length) {
-      html += `<div class="muted" style="font-size:11px;margin-top:12px;">Продукты из каталога под текущий подбор — отметьте для матрицы «Да / Нет / Частично / Неизвестно» по темам запроса:</div>`;
+      html += `<div class="muted" style="font-size:11px;margin-bottom:6px;">Продукты из каталога под текущий подбор — отметьте для матрицы «Да / Нет / Частично / Неизвестно» по функциям листов:</div>`;
       html += `<div class="cfg-catalog-picks">`;
       for (const row of cat) {
         const e = row.entry;
@@ -761,12 +804,11 @@
       }
       html += `</div>`;
     } else if (lastRunCtx) {
-      html += `<p class="muted" style="font-size:11px;margin-top:8px;">Каталог вендоров пуст или не загрузился — матрица только по условным стекам.</p>`;
+      html += `<p class="muted" style="font-size:11px;">Каталог вендоров пуст или не загрузился.</p>`;
+    } else {
+      html += `<p class="muted" style="font-size:11px;">Сначала выполните подбор классов или бандла.</p>`;
     }
     host.innerHTML = html;
-    host.querySelectorAll("input[type=checkbox][data-vendor-id]").forEach((el) => {
-      el.addEventListener("change", () => renderVendorDetail());
-    });
     host.querySelectorAll("input.cfg-cat-pick").forEach((el) => {
       el.addEventListener("change", () => {
         const key = el.getAttribute("data-cat-key");
@@ -776,32 +818,6 @@
         renderVendorDetail();
       });
     });
-  }
-
-  function buildCompositePlan(vendors, themes) {
-    if (!themes.length) return "Уточните запрос — не выделены темы для сопоставления.";
-    const parts = [];
-    for (const gi of themes) {
-      const label = THEME_GROUP_LABELS[gi] || `Тема ${gi + 1}`;
-      let best = null;
-      let bestW = -1;
-      for (const v of vendors) {
-        const w = statusWeight(vendorThemeStatus(v, gi));
-        if (w > bestW) {
-          bestW = w;
-          best = v;
-        }
-      }
-      if (best && bestW > 0) {
-        parts.push(`${label}: опорный контур — «${best.name}»`);
-      } else {
-        parts.push(`${label}: нет уверенного покрытия среди выбранных вендоров — рассмотреть отдельный продукт или доработку.`);
-      }
-    }
-    if (vendors.length > 1) {
-      parts.push(`Интеграция: заложить шину обмена и единый каталог идентичностей между ${vendors.length} контурами.`);
-    }
-    return parts.join(". ");
   }
 
   function buildClassCardHtml(row, hl, options) {
@@ -881,6 +897,8 @@
       resultsEl.innerHTML = "";
       lastRunCtx = null;
       CATALOG_PICK_KEYS = new Set();
+      corrState.thesisPicks.clear();
+      CFG_MX_FILTER = "all";
       renderVendorPick();
       renderVendorDetail();
       return;
@@ -953,6 +971,8 @@
       resultsEl.innerHTML = `<p class="muted">Попробуйте тезаурус: ITSM, CMDB, лицензии, IAM, мониторинг…</p>`;
       lastRunCtx = null;
       CATALOG_PICK_KEYS = new Set();
+      corrState.thesisPicks.clear();
+      CFG_MX_FILTER = "all";
       renderVendorPick();
       renderVendorDetail();
       return;
@@ -960,14 +980,18 @@
 
     const catPackZones = await buildCatalogPickEntries(top, allToks);
     syncCatalogPickSelection(catPackZones);
-
-    const cardsHtml = `<div class="cfg-subh">Классы решений</div>` + top.map((row) => buildClassCardHtml(row, hl, { mode: "zones" })).join("");
+    const allFunctionRowsZones = await buildAllFunctionRowsFromTop(top);
+    const corrMount = `<div id="cfgCorrelationMount" class="cfg-corr-mount"></div>`;
+    const cardsHtml = corrMount + `<div class="cfg-subh">Классы решений</div>` + top.map((row) => buildClassCardHtml(row, hl, { mode: "zones" })).join("");
+    const corrRawZones = hlParts.join("\n\n").trim() || hl;
     if (outputKind === "bundle") {
-      resultsEl.innerHTML = await buildBundleHtmlFromTopClasses(top, allToks);
+      resultsEl.innerHTML = corrMount + (await buildBundleHtmlFromTopClasses(top, allToks));
     } else {
       resultsEl.innerHTML = cardsHtml;
     }
 
+    corrState.thesisPicks.clear();
+    CFG_MX_FILTER = "all";
     lastRunCtx = {
       mode: "zones",
       outputKind,
@@ -975,49 +999,12 @@
       tokens: allToks,
       activeThemeIndices: activeThemeIndices(allToks),
       topClasses: top.slice(0, 8),
-      catalogEntries: catPackZones
+      catalogEntries: catPackZones,
+      allFunctionRows: allFunctionRowsZones
     };
     renderVendorPick();
     renderVendorDetail();
-  }
-
-  async function buildFreeCorrelationHtml(top, tokens) {
-    const slice = top.slice(0, 10);
-    if (!slice.length) return "";
-    const seen = new Set();
-    const matchedFuncs = [];
-    for (const row of slice) {
-      await ensureLazyForNode(row.node);
-      const sh = classSheetByNode(row.node);
-      const data = sh?.data;
-      const list = listFromValue(data?.allFunctions?.length ? data.allFunctions : data?.topFunctions);
-      const clsLabel = row.classRefKey || row.sheetKey || row.node.label.replace(/\n/g, " ").trim();
-      for (const f of list) {
-        if (String(f.type || "").toLowerCase().includes("категор")) continue;
-        const fs = scoreSearchItem(
-          { title: f.title || "", body: [f.title, f.general, f.technical, f.business].filter(Boolean).join(" ") },
-          tokens
-        );
-        if (fs < 2) continue;
-        const line = `${clsLabel}: ${f.title || "функция"}`;
-        const key = line.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        matchedFuncs.push({ line, fs });
-      }
-    }
-    matchedFuncs.sort((a, b) => b.fs - a.fs);
-    const topFns = matchedFuncs.slice(0, 36);
-    const fnUl =
-      topFns.length > 0
-        ? `<ul style="margin:6px 0 0;padding-left:1.2rem;">${topFns.map((x) => `<li>${esc(x.line)}</li>`).join("")}</ul>`
-        : `<p class="muted" style="margin:6px 0 0;">По тексту не удалось выявить конкретные строки функций из листов — добавьте явные ИТ-термины (ITSM, CMDB, SAM, мониторинг…).</p>`;
-    return `<div class="cfg-corr-block">
-  <h3>Корреляция с запросом</h3>
-  <div>В текущем топе подбора: <b>${slice.length}</b> класс(ов) решений. Ниже — строки функций из листов KB этих классов, которые <b>согласуются</b> с вашим текстом (до 36 позиций).</div>
-  ${fnUl}
-  <div class="muted" style="margin-top:8px;font-size:11px;">Карточки классов и каталог ниже отражают ранжирование по совпадению с запросом.</div>
-</div>`;
+    mountCorrelationUi(corrRawZones, top, allToks);
   }
 
   async function runModeFree(statusEl, resultsEl, outputKind) {
@@ -1031,6 +1018,8 @@
       resultsEl.innerHTML = "";
       lastRunCtx = null;
       CATALOG_PICK_KEYS = new Set();
+      corrState.thesisPicks.clear();
+      CFG_MX_FILTER = "all";
       renderVendorPick();
       renderVendorDetail();
       return;
@@ -1110,6 +1099,8 @@
     if (!top.length) {
       resultsEl.innerHTML = zoneBlock + `<p class="muted" style="margin-top:12px;">Классы не ранжированы — уточните ИТ-термины.</p>`;
       syncCatalogPickSelection([]);
+      corrState.thesisPicks.clear();
+      CFG_MX_FILTER = "all";
       lastRunCtx = {
         mode: "free",
         outputKind,
@@ -1117,28 +1108,32 @@
         tokens,
         activeThemeIndices: activeThemeIndices(tokens),
         topClasses: [],
-        catalogEntries: []
+        catalogEntries: [],
+        allFunctionRows: []
       };
       renderVendorPick();
       renderVendorDetail();
       return;
     }
 
-    const corrHtml = await buildFreeCorrelationHtml(top, tokens);
     const catPackFree = await buildCatalogPickEntries(top, tokens);
     syncCatalogPickSelection(catPackFree);
+    const allFunctionRowsFree = await buildAllFunctionRowsFromTop(top);
+    const corrMount = `<div id="cfgCorrelationMount" class="cfg-corr-mount"></div>`;
 
     const cardsHtml =
       zoneBlock +
-      corrHtml +
+      corrMount +
       `<div class="cfg-subh">Классы решений</div>` +
       top.map((row) => buildClassCardHtml(row, hl, { mode: "free" })).join("");
     if (outputKind === "bundle") {
-      resultsEl.innerHTML = zoneBlock + corrHtml + (await buildBundleHtmlFromTopClasses(top, tokens));
+      resultsEl.innerHTML = zoneBlock + corrMount + (await buildBundleHtmlFromTopClasses(top, tokens));
     } else {
       resultsEl.innerHTML = cardsHtml;
     }
 
+    corrState.thesisPicks.clear();
+    CFG_MX_FILTER = "all";
     lastRunCtx = {
       mode: "free",
       outputKind,
@@ -1146,10 +1141,12 @@
       tokens,
       activeThemeIndices: activeThemeIndices(tokens),
       topClasses: top.slice(0, 8),
-      catalogEntries: catPackFree
+      catalogEntries: catPackFree,
+      allFunctionRows: allFunctionRowsFree
     };
     renderVendorPick();
     renderVendorDetail();
+    mountCorrelationUi(raw, top, tokens);
   }
 
   function setCfgLoading(on, text) {
@@ -1180,6 +1177,8 @@
       resultsEl.innerHTML = `<p class="muted">Сбой выполнения. Убедитесь, что страница открыта через http(s), а не file://.</p>`;
       lastRunCtx = null;
       CATALOG_PICK_KEYS = new Set();
+      corrState.thesisPicks.clear();
+      CFG_MX_FILTER = "all";
       renderVendorPick();
       renderVendorDetail();
     } finally {
@@ -1256,6 +1255,34 @@
     initChips();
     renderVendorPick();
     renderVendorDetail();
+
+    document.addEventListener("change", (ev) => {
+      const el = ev.target;
+      if (!(el instanceof HTMLInputElement)) return;
+      if (el.classList.contains("cfg-corr-fn")) {
+        const ti = parseInt(el.getAttribute("data-thesis-ix") || "-1", 10);
+        let fk = el.getAttribute("data-func-key") || "";
+        try {
+          fk = decodeURIComponent(fk);
+        } catch (_) {
+          /* ignore */
+        }
+        if (ti < 0 || !fk) return;
+        if (!corrState.thesisPicks.has(ti)) corrState.thesisPicks.set(ti, new Set());
+        const set = corrState.thesisPicks.get(ti);
+        if (el.checked) set.add(fk);
+        else set.delete(fk);
+        renderVendorDetail();
+      }
+    });
+
+    document.getElementById("cfgVendorPanel")?.addEventListener("change", (e) => {
+      const t = e.target;
+      if (t instanceof HTMLInputElement && t.name === "cfgMxFilter") {
+        CFG_MX_FILTER = t.value === "query" ? "query" : "all";
+        renderVendorDetail();
+      }
+    });
 
     const host = document.getElementById("cfgZonesHost");
     if (host && !host.dataset.inited) {

@@ -98,6 +98,21 @@
       border: 1px solid #bae6fd; background: #f0f9ff; border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; font-size: 12px; line-height: 1.45;
     }
     .cfg-corr-block h3 { margin: 0 0 8px; font-size: 13px; color: #0c4a6e; }
+    .cfg-corr-mount { margin: 0 0 12px; }
+    .cfg-corr-two { width: 100%; border-collapse: collapse; font-size: 12px; background: #fff; border-radius: 8px; overflow: hidden; }
+    .cfg-corr-two th, .cfg-corr-two td { border: 1px solid #bae6fd; padding: 8px 10px; vertical-align: top; }
+    .cfg-corr-two thead th { background: #e0f2fe; color: #0c4a6e; font-weight: 700; }
+    .cfg-corr-thesis { width: 34%; background: #f8fafc; }
+    .cfg-corr-scroll { max-height: 440px; overflow: auto; border-radius: 8px; }
+    .cfg-corr-cand { display: block; margin: 5px 0; font-size: 11px; line-height: 1.35; cursor: pointer; }
+    .cfg-corr-cand input { margin-right: 6px; vertical-align: middle; }
+    .cfg-mx-filt { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-bottom: 8px; font-size: 12px; }
+    .cfg-mx-filt label { cursor: pointer; }
+    .cfg-mx-scroll { max-height: 520px; overflow: auto; margin-top: 8px; border: 1px solid #e2e8f0; border-radius: 10px; }
+    .cfg-mx-table { margin-top: 0 !important; }
+    tr.cfg-fn-from-query td:first-child { box-shadow: inset 3px 0 0 #22c55e; }
+    tr.cfg-fn-from-query { background: #f0fdf4; }
+    th.cfg-mx-prod { max-width: 100px; font-size: 9px; line-height: 1.15; font-weight: 600; }
     .cfg-pct { font-size: 22px; font-weight: 800; color: #1d4ed8; margin: 8px 0 4px; }
     .cfg-composite { font-size: 12px; line-height: 1.45; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
     .cfg-results-wrap { position: relative; min-height: 48px; }
@@ -114,7 +129,7 @@
   </style>
   <script src="./enterprise-it-dataflow-knowledge.js?v=kb20260208"></script>
   <script src="./vendor-catalog-meta.js"></script>
-  <script src="./configurator-page.js?v=7"></script>
+  <script src="./configurator-page.js?v=8"></script>
 </head>
 <body>
   <div class="page">
@@ -200,14 +215,14 @@
     <section class="panel" id="cfgVendorPanel">
       <h2>Вендоры: покрытие требований</h2>
       <p class="muted" style="margin:0 0 8px;">
-        После подбора отметьте один или несколько условных вендоров портфеля. Показан условный % и таблица «что закрывается / где пробелы» по темам из вашего запроса.
-        Когда появится матрица вендоров по функциям листа, ячейки заменятся фактами <b>есть / нет / частично</b> из данных.
+        После подбора отметьте продукты из каталога. Выше в результатах — таблица <b>«вы ввели» ↔ примеры функций из KB»</b>: можно закрепить, какие строки листов относятся к вашему тексту.
+        Ниже — матрица <b>зона → класс → функция</b> и покрытие выбранными продуктами (Да / Нет / Частично / Неизвестно), с фильтром «все» / «только отмеченные в корреляции».
       </p>
       <div id="cfgVendorPick" class="cfg-vendor-grid"></div>
       <div id="cfgVendorDetail"></div>
     </section>
 
-    <span class="badge">Конфигуратор v6 · фильтры бандла · фикс повторного подбора</span>
+    <span class="badge">Конфигуратор v8 · корреляция ввод↔KB · матрица зона–класс–функция</span>
   </div>
 </body>
 </html>
