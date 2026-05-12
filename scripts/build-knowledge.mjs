@@ -1,9 +1,11 @@
 /**
  * Сборка enterprise-it-dataflow-knowledge.js из CSV в корне репозитория.
+ * Полные листы функций — в kb/sheets/<sha1>.json (lazy-load в браузере).
  * Запуск: node scripts/build-knowledge.mjs
  */
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -156,15 +158,40 @@ if (fs.existsSync(corpusPath)) {
   );
 }
 
+const kbDir = path.join(repoRoot, "kb");
+const kbSheetsDir = path.join(kbDir, "sheets");
+fs.mkdirSync(kbSheetsDir, { recursive: true });
+
+const researchCorpusPath = path.join(kbDir, "research-corpus.txt");
+if (researchCorpus) {
+  fs.writeFileSync(researchCorpusPath, researchCorpus, "utf8");
+  console.log("Wrote", researchCorpusPath, researchCorpus.length, "chars");
+}
+
+const classSheetsSlim = {};
+for (const sheetKey of Object.keys(classSheets)) {
+  const data = classSheets[sheetKey];
+  const hash = crypto.createHash("sha1").update(sheetKey, "utf8").digest("hex");
+  const fname = `${hash}.json`;
+  fs.writeFileSync(path.join(kbSheetsDir, fname), JSON.stringify(data), "utf8");
+  classSheetsSlim[sheetKey] = {
+    sheet: data.sheet,
+    functionCount: data.functionCount,
+    topFunctions: data.topFunctions,
+    lazySheet: fname,
+  };
+}
+
 const payload = {
   generatedAt: new Date().toISOString().slice(0, 19),
   zones,
   classReference,
-  classSheets,
-  researchCorpus,
+  classSheets: classSheetsSlim,
+  researchCorpus: "",
+  researchCorpusLazy: "kb/research-corpus.txt",
 };
 
 const outPath = path.join(repoRoot, "enterprise-it-dataflow-knowledge.js");
 const json = JSON.stringify(payload);
 fs.writeFileSync(outPath, `window.ENTERPRISE_KB = ${json};`, { encoding: "utf8" });
-console.log("Wrote", outPath, "sheets:", Object.keys(classSheets).length);
+console.log("Wrote", outPath, "sheets:", Object.keys(classSheetsSlim).length, "lazy files:", Object.keys(classSheetsSlim).length);

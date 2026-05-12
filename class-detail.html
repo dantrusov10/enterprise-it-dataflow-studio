@@ -6,7 +6,15 @@
   <title>Класс — материалы и зачаток конкурентного анализа</title>
   <style>
     body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: #f1f5f9; color: #0f172a; line-height: 1.45; }
-    .wrap { max-width: 920px; margin: 0 auto; padding: 20px 16px 48px; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; display: flex; gap: 20px; align-items: flex-start; }
+    .main-col { flex: 1; min-width: 0; }
+    .toc-col {
+      width: 200px; flex-shrink: 0; position: sticky; top: 12px;
+      font-size: 11px; background: #fff; border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px; max-height: 80vh; overflow: auto;
+    }
+    .toc-col h3 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; color: #64748b; letter-spacing: 0.04em; }
+    .toc-col a { display: block; color: #1d4ed8; text-decoration: none; margin: 4px 0; line-height: 1.25; word-break: break-word; }
+    .toc-col a:hover { text-decoration: underline; }
     a.back { color: #1d4ed8; font-size: 13px; text-decoration: none; }
     a.back:hover { text-decoration: underline; }
     h1 { font-size: 1.25rem; margin: 12px 0 8px; }
@@ -75,16 +83,18 @@
 </head>
 <body>
   <div class="wrap">
+    <div class="main-col">
     <a class="back" href="./index.html">← К схеме</a>
     <h1 id="pageTitle">Класс</h1>
     <p class="muted" id="pageMeta"></p>
-    <div id="refBlock"></div>
+    <div id="anchor-ref"><div id="refBlock"></div></div>
     <div class="panel">
-      <h2>Все функции и категории (лист Excel)</h2>
+      <h2 id="anchor-functions">Все функции и категории (лист Excel)</h2>
+      <p class="muted" id="functionsLoading" style="display:none;">Загрузка полного листа…</p>
       <div id="functionsBlock"></div>
     </div>
     <div class="panel">
-      <h2>Зачаток конкурентного анализа</h2>
+      <h2 id="anchor-ca">Зачаток конкурентного анализа</h2>
       <p class="muted">Черновик: заполните по мере подключения матрицы вендоров. Пока — структура таблицы и напоминание, что сравнение идёт по функциям из листа класса.</p>
       <table class="ca">
         <thead>
@@ -99,6 +109,14 @@
         <tbody id="caTableBody"></tbody>
       </table>
     </div>
+    </div>
+    <aside class="toc-col" id="tocAside" aria-label="Оглавление">
+      <h3>На странице</h3>
+      <a href="#anchor-ref">Справочник</a>
+      <a href="#anchor-functions">Функции</a>
+      <div id="tocFnLinks"></div>
+      <a href="#anchor-ca">Конкуренты</a>
+    </aside>
   </div>
   <script>
     const KB = window.ENTERPRISE_KB || { zones: {}, classReference: {}, classSheets: {} };
@@ -217,7 +235,7 @@
       const list = all.length ? all : top;
       if (!list.length) return '<p class="muted">Нет данных листа.</p>';
       const parts = [];
-      for (const f of list) {
+      list.forEach((f, i) => {
         const typ = String(f.type || "").toLowerCase();
         const pr = f.priority ?? "?";
         const title = esc(f.title || "без названия");
@@ -225,10 +243,39 @@
         const catClass = isCat ? " fn-category" : "";
         const pill = isCat ? `<span class="pill">категория · P${pr}</span>` : `<span class="pill">P${pr}</span>`;
         parts.push(
-          `<details class="kb-cascade${catClass}"><summary>${title} ${pill} <span class="kb-cascade-hint">· раскройте блок</span></summary><div style="margin-top:4px;">${renderFunctionNestedSheets(f)}</div></details>`
+          `<details id="fn-${i}" class="kb-cascade${catClass}"><summary>${title} ${pill} <span class="kb-cascade-hint">· раскройте блок</span></summary><div style="margin-top:4px;">${renderFunctionNestedSheets(f)}</div></details>`
         );
-      }
+      });
       return parts.join("");
+    }
+
+    function buildTocFnLinks(sheetData) {
+      const all = listFromValue(sheetData?.allFunctions);
+      const top = listFromValue(sheetData?.topFunctions);
+      const list = all.length ? all : top;
+      const el = document.getElementById("tocFnLinks");
+      if (!el) return;
+      el.innerHTML = list
+        .map((f, i) => {
+          const t = String(f.title || "").trim().slice(0, 48);
+          return `<a href="#fn-${i}">${esc(t)}${t.length >= 48 ? "…" : ""}</a>`;
+        })
+        .join("");
+    }
+
+    async function ensureFullSheet(meta) {
+      if (!meta?.data) return meta?.data;
+      const d = meta.data;
+      if (Array.isArray(d.allFunctions) && d.allFunctions.length) return d;
+      const fname = d.lazySheet;
+      if (!fname) return d;
+      const r = await fetch(`kb/sheets/${fname}`);
+      if (!r.ok) return d;
+      const full = await r.json();
+      d.allFunctions = full.allFunctions;
+      d.topFunctions = full.topFunctions;
+      d.functionCount = full.functionCount;
+      return d;
     }
 
     const params = new URLSearchParams(location.search);
@@ -239,29 +286,40 @@
     document.getElementById("pageTitle").textContent = label.replace(/\n/g, " ");
     document.getElementById("pageMeta").textContent = nodeId
       ? `ID на схеме: ${nodeId}${sheetKey ? ` · лист KB: ${sheetKey}` : ""}`
-      : "Откройте страницу по ссылке «Все функции…» из модалки базы знаний.";
+      : "Откройте страницу по ссылке «Все функции…» из панели базы знаний.";
 
     const ref = classRefFromParams(nodeId, label);
-    const sheet = classSheetFromParams(nodeId, label, sheetKey);
+    let sheet = classSheetFromParams(nodeId, label, sheetKey);
 
     document.getElementById("refBlock").innerHTML = renderClassRefBlock(ref);
-    document.getElementById("functionsBlock").innerHTML = renderAllFunctionsHtml(sheet?.data);
 
-    const tbody = document.getElementById("caTableBody");
-    const funcRows = listFromValue(sheet?.data?.allFunctions?.length ? sheet.data.allFunctions : sheet?.data?.topFunctions).filter(
-      (f) => !String(f.type || "").toLowerCase().includes("категор")
-    );
-    const sample = funcRows.slice(0, 25);
-    if (!sample.length) {
-      tbody.innerHTML = `<tr><td colspan="5" class="muted">Нет строк функций для таблицы.</td></tr>`;
-    } else {
-      tbody.innerHTML = sample
-        .map(
-          (f) =>
-            `<tr><td>${esc(f.title)}</td><td>—</td><td>—</td><td>—</td><td class="muted">Добавьте ссылки на документацию</td></tr>`
-        )
-        .join("");
-    }
+    (async () => {
+      const loadEl = document.getElementById("functionsLoading");
+      if (sheet?.data?.lazySheet) {
+        loadEl.style.display = "block";
+        await ensureFullSheet(sheet);
+        loadEl.style.display = "none";
+      }
+      const data = sheet?.data;
+      document.getElementById("functionsBlock").innerHTML = renderAllFunctionsHtml(data);
+      buildTocFnLinks(data);
+
+      const tbody = document.getElementById("caTableBody");
+      const funcRows = listFromValue(data?.allFunctions?.length ? data.allFunctions : data?.topFunctions).filter(
+        (f) => !String(f.type || "").toLowerCase().includes("категор")
+      );
+      const sample = funcRows.slice(0, 25);
+      if (!sample.length) {
+        tbody.innerHTML = `<tr><td colspan="5" class="muted">Нет строк функций для таблицы.</td></tr>`;
+      } else {
+        tbody.innerHTML = sample
+          .map(
+            (f) =>
+              `<tr><td>${esc(f.title)}</td><td>—</td><td>—</td><td>—</td><td class="muted">Добавьте ссылки на документацию</td></tr>`
+          )
+          .join("");
+      }
+    })();
   </script>
 </body>
 </html>

@@ -79,19 +79,6 @@
     .edge-zone { stroke: #16a34a; }
     .edge-active { stroke: #0f172a !important; stroke-width: 3.2 !important; }
     .control-point { fill: #2563eb; stroke: #fff; stroke-width: 1.5; cursor: move; pointer-events: all; }
-    .modal-backdrop {
-      position: absolute; inset: 0; z-index: 120; background: rgba(2, 6, 23, 0.45); backdrop-filter: blur(4px);
-      display: none;
-    }
-    .modal-backdrop.open { display: block; }
-    .knowledge-modal {
-      position: absolute; z-index: 130; left: 50%; top: 50%; transform: translate(-50%, -50%);
-      width: min(880px, calc(100vw - 60px)); max-height: calc(100vh - 80px); display: none;
-      background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; box-shadow: 0 20px 60px rgba(15,23,42,0.28);
-      overflow: hidden;
-    }
-    .knowledge-modal.open { display: block; }
-    .knowledge-modal-body { max-height: calc(100vh - 150px); overflow: auto; padding: 12px; }
     .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .icon-btn { border: 1px solid #94a3b8; background: #fff; border-radius: 8px; padding: 2px 8px; cursor: pointer; font-size: 12px; }
     .fab-knowledge {
@@ -182,10 +169,52 @@
       margin-top: 8px;
     }
     .kb-edge-corpus .kb-src-badge { background: #ffedd5; color: #9a3412; }
+
+    .sidebar-view-section { border-bottom: 1px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 4px; }
+    .sidebar-view-section h3 { margin: 0 0 6px 0; font-size: 12px; font-weight: 700; color: #0f172a; }
+    .view-check { display: flex; align-items: center; gap: 6px; font-size: 11px; margin: 4px 0; cursor: pointer; user-select: none; }
+    .view-check input { flex-shrink: 0; }
+    .view-zone-head { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 11px; font-weight: 600; }
+    .linkish { border: none; background: none; color: #2563eb; cursor: pointer; font-size: 11px; padding: 0 4px; text-decoration: underline; }
+    .view-zone-multi {
+      width: 100%; margin-top: 4px; font-size: 11px; border-radius: 8px; border: 1px solid #94a3b8;
+      min-height: 100px; box-sizing: border-box; padding: 4px;
+    }
+
+    .knowledge-dock {
+      position: fixed; top: 12px; bottom: 12px; width: min(360px, 34vw); right: 12px; z-index: 130;
+      display: flex; flex-direction: column;
+      background: #fff; border: 1px solid #cbd5e1; border-radius: 12px;
+      box-shadow: 0 16px 48px rgba(15,23,42,0.18);
+      transform: translateX(calc(100% + 28px));
+      transition: transform 0.22s ease;
+      overflow: hidden;
+    }
+    .knowledge-dock.open { transform: translateX(0); }
+    .app.knowledge-dock-open .workspace-wrap { margin-right: calc(min(360px, 34vw) + 28px); transition: margin-right 0.22s ease; }
+    .app.knowledge-dock-open .fab-knowledge { right: calc(min(360px, 34vw) + 40px); transition: right 0.22s ease; }
+    .knowledge-dock-head { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #e2e8f0; }
+    .knowledge-dock-head h4 { margin: 0; font-size: 14px; }
+    .knowledge-dock-body { flex: 1; overflow: auto; padding: 12px; min-height: 0; }
+
+    .minimap-wrap {
+      position: fixed; bottom: 72px; right: 12px; z-index: 85;
+      width: 208px; padding: 6px;
+      background: rgba(255,255,255,0.96); border: 1px solid #cbd5e1; border-radius: 10px;
+      box-shadow: 0 6px 20px rgba(15,23,42,0.12);
+      transition: right 0.22s ease;
+    }
+    .app.knowledge-dock-open .minimap-wrap { right: calc(min(360px, 34vw) + 28px); }
+    .minimap-title { font-size: 9px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+    #minimapSvg { display: block; width: 100%; height: auto; border-radius: 6px; background: #f8fafc; }
+    .mm-zone { fill: rgba(148, 163, 184, 0.25); stroke: #94a3b8; stroke-width: 2; }
+    .mm-zone.sel { fill: rgba(37, 99, 235, 0.2); stroke: #2563eb; }
+    .mm-view { fill: none; stroke: #ea580c; stroke-width: 3; pointer-events: none; }
+    .mm-edge-hl { fill: none; stroke: #7c3aed; stroke-width: 4; opacity: 0.85; pointer-events: none; }
   </style>
 </head>
 <body>
-  <div class="app">
+  <div class="app" id="appRoot">
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-head">
         <span class="sidebar-title">Меню</span>
@@ -195,8 +224,23 @@
         <div class="sidebar-search-section">
           <h3>Поиск по базе</h3>
           <input id="sidebarSearchInput" class="search-input" type="search" placeholder="Задача, функция, синоним…" autocomplete="off" />
-          <div class="hint" style="font-size:11px;margin-top:4px;">Семантика v2. В модалке — топ функций; полный лист и таблица конкурентов — ссылка в карточке класса. Синяя полоса = справочник, зелёные вложения = лист Excel.</div>
+          <div class="hint" style="font-size:11px;margin-top:4px;">Семантика v2. База — панель справа (схема видна). Мини-карта: оранжевый прямоугольник = видимая область, фиолетовая линия = выбранная связь. Листы классов подгружаются по сети.</div>
           <div id="sidebarSearchResults" class="sidebar-search-results"></div>
+        </div>
+        <div class="sidebar-view-section">
+          <h3>Режим просмотра</h3>
+          <label class="view-check"><input type="checkbox" id="viewEdgesDirect" checked /> Прямые связи классов</label>
+          <label class="view-check"><input type="checkbox" id="viewEdgesAlt" checked /> Косвенные / альтернативные</label>
+          <label class="view-check"><input type="checkbox" id="viewEdgesZone" checked /> Связи зон</label>
+          <div class="view-zone-head">
+            <span>Зоны (Ctrl+клик)</span>
+            <span>
+              <button type="button" class="linkish" id="zonesAllBtn">все</button>
+              <button type="button" class="linkish" id="zonesNoneBtn">снять</button>
+            </span>
+          </div>
+          <select id="viewZoneMulti" class="view-zone-multi" multiple size="7" title="Ничего не выбрано = показать все зоны"></select>
+          <div class="hint" style="font-size:10px;margin-top:4px;">Фильтр зон скрывает зону, классы в ней и инцидентные связи.</div>
         </div>
         <button class="btn" id="editToggle">Редактировать: выкл</button>
         <button class="btn" id="addZoneBtn">+ Зона</button>
@@ -209,7 +253,7 @@
         <button class="btn" id="minCrossBtn">Минимум пересечений</button>
         <button class="btn" id="exportBtn">Экспорт JSON</button>
         <button class="btn" id="openKnowledgeBtn">База знаний</button>
-        <span class="badge">v5.3 unified cascades + class detail page</span>
+        <span class="badge">v6 view modes + dock + lazy KB</span>
       </div>
     </aside>
     <div class="workspace-wrap">
@@ -224,13 +268,15 @@
         <button type="button" class="btn-tiny primary" id="detailYes">Да</button>
         <button type="button" class="btn-tiny" id="detailNo">Нет</button>
       </div>
-      <div class="modal-backdrop" id="knowledgeBackdrop"></div>
-      <div class="knowledge-modal" id="infoPanel">
-        <div class="panel-head">
+        <div class="minimap-title">Мини-карта</div>
+        <svg id="minimapSvg" width="196" height="120" viewBox="0 0 2600 1600" preserveAspectRatio="xMidYMid meet"></svg>
+      </div>
+      <div class="knowledge-dock" id="infoPanel" role="complementary" aria-label="База знаний">
+        <div class="knowledge-dock-head panel-head">
           <h4>База знаний</h4>
-          <button class="icon-btn" id="closeKnowledgeBtn">✕</button>
+          <button type="button" class="icon-btn" id="closeKnowledgeBtn" aria-label="Закрыть панель">✕</button>
         </div>
-        <div class="knowledge-modal-body">
+        <div class="knowledge-dock-body">
           <div id="entityCard" class="panel-section" style="border-top:none;padding-top:0;"></div>
           <div id="vendorCard" class="panel-section"></div>
         </div>
@@ -239,6 +285,15 @@
   </div>
   <script src="./enterprise-it-dataflow-knowledge.js"></script>
   <script>
+    const appRoot = document.getElementById("appRoot");
+    const minimapSvg = document.getElementById("minimapSvg");
+    const minimapWrap = document.getElementById("minimapWrap");
+    const viewEdgesDirect = document.getElementById("viewEdgesDirect");
+    const viewEdgesAlt = document.getElementById("viewEdgesAlt");
+    const viewEdgesZone = document.getElementById("viewEdgesZone");
+    const viewZoneMulti = document.getElementById("viewZoneMulti");
+    const zonesAllBtn = document.getElementById("zonesAllBtn");
+    const zonesNoneBtn = document.getElementById("zonesNoneBtn");
     const viewport = document.getElementById("viewport");
     const workspace = document.getElementById("workspace");
     const edgesSvg = document.getElementById("edges");
@@ -246,7 +301,6 @@
     const toggleSidebarBtn = document.getElementById("toggleSidebarBtn");
     const openKnowledgeBtn = document.getElementById("openKnowledgeBtn");
     const openKnowledgeFab = document.getElementById("openKnowledgeFab");
-    const knowledgeBackdrop = document.getElementById("knowledgeBackdrop");
     const editToggle = document.getElementById("editToggle");
     const addZoneBtn = document.getElementById("addZoneBtn");
     const addClassBtn = document.getElementById("addClassBtn");
@@ -468,7 +522,75 @@
 
       return { what: what.trim(), why: why.trim(), atSource: atSource.trim(), atDest: atDest.trim(), research: research.trim() };
     }
-    const KB = window.ENTERPRISE_KB || { zones: {}, classReference: {}, classSheets: {}, researchCorpus: "" };
+    const KB = window.ENTERPRISE_KB || { zones: {}, classReference: {}, classSheets: {}, researchCorpus: "", researchCorpusLazy: "" };
+    let KB_RESEARCH_CORPUS_TEXT = typeof KB.researchCorpus === "string" && KB.researchCorpus.length > 80 ? KB.researchCorpus : "";
+    let KB_RESEARCH_LOAD_P = null;
+    const KB_SHEET_PROMISES = Object.create(null);
+
+    function sheetHasAllFunctions(meta) {
+      return Array.isArray(meta?.allFunctions) && meta.allFunctions.length > 0;
+    }
+
+    async function ensureResearchCorpus() {
+      if (KB_RESEARCH_CORPUS_TEXT && KB_RESEARCH_CORPUS_TEXT.length > 200) return KB_RESEARCH_CORPUS_TEXT;
+      const url = KB.researchCorpusLazy;
+      if (!url) return KB_RESEARCH_CORPUS_TEXT || "";
+      if (KB_RESEARCH_LOAD_P) return KB_RESEARCH_LOAD_P;
+      KB_RESEARCH_LOAD_P = fetch(url)
+        .then((r) => (r.ok ? r.text() : ""))
+        .then((t) => {
+          KB_RESEARCH_CORPUS_TEXT = String(t || "").replace(/^\uFEFF/, "").trim();
+          KB_RESEARCH_LOAD_P = null;
+          return KB_RESEARCH_CORPUS_TEXT;
+        })
+        .catch(() => {
+          KB_RESEARCH_LOAD_P = null;
+          return "";
+        });
+      return KB_RESEARCH_LOAD_P;
+    }
+
+    async function ensureLazySheet(sheetKey) {
+      const meta = KB.classSheets?.[sheetKey];
+      if (!meta) return null;
+      if (sheetHasAllFunctions(meta)) return meta;
+      if (!meta.lazySheet) return meta;
+      if (KB_SHEET_PROMISES[sheetKey]) {
+        await KB_SHEET_PROMISES[sheetKey];
+        return meta;
+      }
+      KB_SHEET_PROMISES[sheetKey] = fetch(`kb/sheets/${meta.lazySheet}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data && Array.isArray(data.allFunctions)) {
+            meta.allFunctions = data.allFunctions;
+            meta.topFunctions = data.topFunctions;
+            meta.functionCount = data.functionCount;
+          }
+        })
+        .finally(() => {
+          delete KB_SHEET_PROMISES[sheetKey];
+        });
+      await KB_SHEET_PROMISES[sheetKey];
+      return meta;
+    }
+
+    async function ensureLazyForNode(node) {
+      if (!node) return;
+      const sh = classSheetByNode(node);
+      if (sh?.key) await ensureLazySheet(sh.key);
+    }
+
+    async function ensureLazyForEdgeEndpoints(edge) {
+      if (!edge) return;
+      const load = async (id) => {
+        if (!id || id.startsWith("z-")) return;
+        const n = nodeById(id);
+        await ensureLazyForNode(n);
+      };
+      await load(edge.from);
+      await load(edge.to);
+    }
 
     const RU_STEM_SUFFIXES = [
       "иями","ями","остями","ях","ах","ами","ого","ему","ому","ыми","ех","ох","им","ым","ую","юю","ых","их","ая","ое","ые","ий","ой","ей","ем","ам","ям","ию","ия","ие","ов","ев","ть","ся","сь","ла","ли","ло","на","но","ны","ет","ют","ат","ят","ить","ать","ение","ения","ости","ания","ован","ирован","ельн","ество","нн","лись"
@@ -547,9 +669,9 @@
       return [v];
     }
 
-    function enrichEdgeResearch(baseResearch, hint) {
-      const corpus = KB.researchCorpus;
-      if (!corpus || typeof corpus !== "string" || corpus.length < 200) return baseResearch;
+    async function enrichEdgeResearch(baseResearch, hint) {
+      const corpus = await ensureResearchCorpus();
+      if (!corpus || corpus.length < 200) return baseResearch;
       const paras = corpus.split(/\n\s*\n/).map((p) => p.trim()).filter((p) => p.length > 100);
       const toks = expandQueryTokens(tokenizeQuery(hint)).filter((t) => t.length > 3);
       if (!toks.length) return baseResearch;
@@ -637,7 +759,7 @@
       `;
     }
 
-    function openKnowledgeModal(options = {}) {
+    async function openKnowledgeModal(options = {}) {
       const focusSearch = options.focusSearch !== false;
       const fromMenu = !!options.fromMenu;
       if (fromMenu) {
@@ -645,20 +767,22 @@
         if (t) promptSuppressedForToken = t;
       }
       knowledgeOpen = true;
+      appRoot.classList.add("knowledge-dock-open");
       infoPanel.classList.add("open");
-      knowledgeBackdrop.classList.add("open");
-      document.body.style.overflow = "hidden";
-      renderEntityCard();
+      await renderEntityCard();
       updateDetailPrompt();
       if (focusSearch && sidebarSearchInput) sidebarSearchInput.focus();
     }
 
     function closeKnowledgeModal() {
       knowledgeOpen = false;
+      appRoot.classList.remove("knowledge-dock-open");
       infoPanel.classList.remove("open");
-      knowledgeBackdrop.classList.remove("open");
-      document.body.style.overflow = "";
       updateDetailPrompt();
+    }
+
+    function refreshKnowledgePanelIfOpen() {
+      if (knowledgeOpen) void renderEntityCard();
     }
 
     function renderFunctionNestedSheets(f) {
@@ -735,10 +859,12 @@
       return `class-detail.html?${q.toString()}`;
     }
 
-    function renderEntityCard() {
+    async function renderEntityCard() {
       if (selectedNodeId) {
         const node = nodeById(selectedNodeId);
         if (!node) return;
+        entityCard.innerHTML = `<p class="muted-text">Загрузка листа класса…</p>`;
+        await ensureLazyForNode(node);
         const ref = classRefByNode(node);
         const sheet = classSheetByNode(node);
         const fnHtml = renderClassFunctionsHtml(sheet?.data);
@@ -785,11 +911,14 @@
       if (selectedEdgeId) {
         const e = edgeById(selectedEdgeId);
         if (!e) return;
+        entityCard.innerHTML = `<p class="muted-text">Загрузка материалов для связи…</p>`;
+        await ensureResearchCorpus();
+        await ensureLazyForEdgeEndpoints(e);
         const from = esc(endpointTitlePlain(e.from));
         const to = esc(endpointTitlePlain(e.to));
         const sec = buildEdgeKnowledgeSections(e);
         const hintEdge = [e.label, endpointTitlePlain(e.from), endpointTitlePlain(e.to)].filter(Boolean).join(" ");
-        sec.research = enrichEdgeResearch(sec.research, hintEdge);
+        sec.research = await enrichEdgeResearch(sec.research, hintEdge);
         const researchBlocks = esc(sec.research || "")
           .split(/\n\n/)
           .filter(Boolean)
@@ -1032,6 +1161,75 @@
       ]
     };
 
+    function visibleZoneFilterSet() {
+      const opts = Array.from(viewZoneMulti?.selectedOptions || []).map((o) => o.value);
+      if (!state?.zones?.length) return null;
+      if (opts.length === 0 || opts.length === state.zones.length) return null;
+      return new Set(opts);
+    }
+
+    function isNodeInViewForZones(n, zset) {
+      if (!n) return false;
+      if (n.hub && !n.zoneId) return true;
+      if (!n.zoneId) return true;
+      if (zset === null) return true;
+      return zset.has(n.zoneId);
+    }
+
+    function isZoneFrameVisibleInFilter(z, zset) {
+      if (zset === null) return true;
+      return zset.has(z.id);
+    }
+
+    function isEdgeTypePassFilter(e) {
+      if (e.type === "direct") return !!viewEdgesDirect?.checked;
+      if (e.type === "alt") return !!viewEdgesAlt?.checked;
+      if (e.type === "zone") return !!viewEdgesZone?.checked;
+      return true;
+    }
+
+    function endpointVisibleForFilter(id, zset) {
+      if (id.startsWith("z-")) {
+        if (!zoneById(id)) return false;
+        if (zset === null) return true;
+        return zset.has(id);
+      }
+      return isNodeInViewForZones(nodeById(id), zset);
+    }
+
+    function isEdgeVisibleInFilter(e, zset) {
+      if (!isEdgeTypePassFilter(e)) return false;
+      return endpointVisibleForFilter(e.from, zset) && endpointVisibleForFilter(e.to, zset);
+    }
+
+    function initViewFiltersUi() {
+      if (!viewZoneMulti) return;
+      viewZoneMulti.innerHTML = "";
+      state.zones.forEach((z) => {
+        const o = document.createElement("option");
+        o.value = z.id;
+        o.textContent = z.title;
+        o.selected = true;
+        viewZoneMulti.appendChild(o);
+      });
+      const rerender = () => {
+        render();
+        updateMinimap();
+      };
+      viewZoneMulti.addEventListener("change", rerender);
+      viewEdgesDirect.addEventListener("change", rerender);
+      viewEdgesAlt.addEventListener("change", rerender);
+      viewEdgesZone.addEventListener("change", rerender);
+      zonesAllBtn.addEventListener("click", () => {
+        Array.from(viewZoneMulti.options).forEach((o) => { o.selected = true; });
+        rerender();
+      });
+      zonesNoneBtn.addEventListener("click", () => {
+        Array.from(viewZoneMulti.options).forEach((o) => { o.selected = false; });
+        rerender();
+      });
+    }
+
     function nodeById(id) { return state.nodes.find(n => n.id === id); }
     function zoneById(id) { return state.zones.find(z => z.id === id); }
     function edgeById(id) { return state.edges.find(e => e.id === id); }
@@ -1088,6 +1286,44 @@
       const start = borderPointTowards(aRect, bCenter);
       const end = borderPointTowards(bRect, aCenter);
       return { sx: start.x, sy: start.y, tx: end.x, ty: end.y };
+    }
+
+    function workspaceW() {
+      const w = parseInt(workspace.style.width, 10);
+      return Number.isFinite(w) && w > 0 ? w : 2600;
+    }
+    function workspaceH() {
+      const h = parseInt(workspace.style.height, 10);
+      return Number.isFinite(h) && h > 0 ? h : 1600;
+    }
+
+    function updateMinimap() {
+      if (!minimapSvg) return;
+      const W = workspaceW();
+      const H = workspaceH();
+      minimapSvg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+      const zset = visibleZoneFilterSet();
+      const parts = [];
+      state.zones.forEach((z) => {
+        if (!isZoneFrameVisibleInFilter(z, zset)) return;
+        const sel = selectedZoneId === z.id;
+        parts.push(`<rect class="mm-zone${sel ? " sel" : ""}" x="${z.x}" y="${z.y}" width="${z.w}" height="${z.h}" rx="10" />`);
+      });
+      const sl = viewport.scrollLeft / scale;
+      const st = viewport.scrollTop / scale;
+      const vw = viewport.clientWidth / scale;
+      const vh = viewport.clientHeight / scale;
+      parts.push(`<rect class="mm-view" x="${sl}" y="${st}" width="${vw}" height="${vh}" />`);
+      if (selectedEdgeId) {
+        const e = edgeById(selectedEdgeId);
+        if (e && isEdgeVisibleInFilter(e, zset)) {
+          const ep = edgeEndpoints(e);
+          if (ep) {
+            parts.push(`<line class="mm-edge-hl" x1="${ep.sx}" y1="${ep.sy}" x2="${ep.tx}" y2="${ep.ty}" />`);
+          }
+        }
+      }
+      minimapSvg.innerHTML = parts.join("");
     }
 
     function simplifyRoutes(mode = "normal") {
@@ -1236,6 +1472,7 @@
 
     function render() {
       clearDom();
+      const zset = visibleZoneFilterSet();
       edgesSvg.setAttribute("width", workspace.clientWidth);
       edgesSvg.setAttribute("height", workspace.clientHeight);
 
@@ -1256,6 +1493,7 @@
 
       // zones
       state.zones.forEach(z => {
+        if (!isZoneFrameVisibleInFilter(z, zset)) return;
         const el = document.createElement("div");
         el.className = "zone";
         el.dataset.zoneId = z.id;
@@ -1280,6 +1518,7 @@
 
       // nodes
       state.nodes.forEach(n => {
+        if (!isNodeInViewForZones(n, zset)) return;
         const el = document.createElement("div");
         el.className = "node" + (n.hub ? " hub" : "");
         el.dataset.nodeId = n.id;
@@ -1291,10 +1530,14 @@
       });
 
       // edges
-      state.edges.forEach(e => drawEdge(e));
+      state.edges.forEach(e => {
+        if (!isEdgeVisibleInFilter(e, zset)) return;
+        drawEdge(e);
+      });
 
       bindInteractions();
       applySelection();
+      updateMinimap();
     }
 
     function drawEdge(e) {
@@ -1354,6 +1597,7 @@
       syncPromptSuppressionForNewSelection();
       render();
       updateDetailPrompt();
+      refreshKnowledgePanelIfOpen();
     }
 
     function selectNode(nodeId) {
@@ -1363,6 +1607,7 @@
       syncPromptSuppressionForNewSelection();
       render();
       updateDetailPrompt();
+      refreshKnowledgePanelIfOpen();
     }
 
     function selectZone(zoneId) {
@@ -1372,6 +1617,7 @@
       syncPromptSuppressionForNewSelection();
       render();
       updateDetailPrompt();
+      refreshKnowledgePanelIfOpen();
     }
 
     function applySelection() {
@@ -1514,7 +1760,7 @@
           detailDismissedToken = "";
           promptSuppressedForToken = "";
           render();
-          if (knowledgeOpen) renderEntityCard();
+          if (knowledgeOpen) void renderEntityCard();
           updateDetailPrompt();
         }
       };
@@ -1732,12 +1978,17 @@
       const next = scale + (e.deltaY < 0 ? 0.08 : -0.08);
       scale = Math.max(0.35, Math.min(2.5, next));
       workspace.style.transform = `scale(${scale})`;
+      updateMinimap();
     }, { passive: false });
 
+    viewport.addEventListener("scroll", () => updateMinimap(), { passive: true });
+    window.addEventListener("resize", () => updateMinimap());
+
+    initViewFiltersUi();
     applyCleanLayout();
     simplifyRoutes("normal");
     renderVendorStub();
-    renderEntityCard();
+    void renderEntityCard();
     sidebarSearchInput.addEventListener("input", (e) => runSearch(e.target.value));
     toggleSidebarBtn.addEventListener("click", () => {
       sidebarCollapsed = !sidebarCollapsed;
@@ -1745,14 +1996,14 @@
       toggleSidebarBtn.textContent = sidebarCollapsed ? "⟩" : "⟨";
       toggleSidebarBtn.title = sidebarCollapsed ? "Развернуть меню" : "Свернуть меню";
     });
-    openKnowledgeBtn.addEventListener("click", () => openKnowledgeModal({ fromMenu: true }));
-    openKnowledgeFab.addEventListener("click", () => openKnowledgeModal({ fromMenu: true }));
+    openKnowledgeBtn.addEventListener("click", () => void openKnowledgeModal({ fromMenu: true }));
+    openKnowledgeFab.addEventListener("click", () => void openKnowledgeModal({ fromMenu: true }));
     detailYes.addEventListener("click", (ev) => {
       ev.stopPropagation();
       const tok = selectionDetailToken();
       if (!tok) return;
       promptSuppressedForToken = tok;
-      openKnowledgeModal({ focusSearch: false });
+      void openKnowledgeModal({ focusSearch: false });
     });
     detailNo.addEventListener("click", (ev) => {
       ev.stopPropagation();
@@ -1760,7 +2011,6 @@
       updateDetailPrompt();
     });
     closeKnowledgeBtn.addEventListener("click", closeKnowledgeModal);
-    knowledgeBackdrop.addEventListener("click", closeKnowledgeModal);
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && knowledgeOpen) closeKnowledgeModal();
     });
