@@ -60,48 +60,97 @@
     .cfg-global-line { margin-top: 6px; }
     .cfg-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
     .badge { font-size: 11px; color: #334155; background: #dbeafe; border: 1px solid #93c5fd; padding: 3px 8px; border-radius: 999px; display: inline-block; margin-top: 16px; }
+    .cfg-mode-row { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-bottom: 14px; align-items: flex-start; }
+    .cfg-mode-row label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; font-size: 13px; max-width: 42ch; }
+    .cfg-mode-row input { margin-top: 3px; }
+    .cfg-hidden { display: none !important; }
+    .cfg-subh { font-size: 13px; font-weight: 700; margin: 16px 0 8px; color: #0f172a; }
+    .cfg-zone-rec { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+    .cfg-zone-rec-card {
+      border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; background: #fafafa;
+      display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: baseline;
+    }
+    .cfg-zone-rec-card b { font-size: 13px; }
+    .cfg-vendor-grid { display: flex; flex-wrap: wrap; gap: 10px 16px; margin: 10px 0; }
+    .cfg-vendor-grid label { display: flex; gap: 6px; align-items: center; cursor: pointer; font-size: 12px; }
+    table.cfg-vt { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
+    table.cfg-vt th, table.cfg-vt td { border: 1px solid #e2e8f0; padding: 8px; text-align: left; vertical-align: top; }
+    table.cfg-vt th { background: #f8fafc; }
+    .cfg-st-yes { color: #047857; font-weight: 600; }
+    .cfg-st-part { color: #b45309; font-weight: 600; }
+    .cfg-st-no { color: #b91c1c; font-weight: 600; }
+    .cfg-pct { font-size: 22px; font-weight: 800; color: #1d4ed8; margin: 8px 0 4px; }
+    .cfg-composite { font-size: 12px; line-height: 1.45; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
   </style>
   <script src="./enterprise-it-dataflow-knowledge.js?v=kb20260208"></script>
-  <script src="./configurator-page.js?v=1"></script>
+  <script src="./configurator-page.js?v=2"></script>
 </head>
 <body>
   <div class="page">
     <a class="back" href="./index.html">← К схеме и базе</a>
     <h1>Конфигуратор классов решений</h1>
     <p class="lead">
-      Разнесите требования по <b>зонам</b> (можно тезисно или развёрнуто): каждая зона даёт отдельный скор по справочнику и листу функций класса.
-      В результатах явно показан <b>класс в справочнике</b> и узел на схеме; вендоры подключаются позже к выбранному классу.
+      <b>Два режима:</b> для менеджера, который понимает паутину — требования по <b>зонам карты</b> (как на схеме).
+      Для менеджера «с нуля» — один <b>абзац скоупа</b>: система предложит зоны и классы. Далее — слой вендоров с оценкой покрытия и черновиком композиции (пока эвристика до матрицы Excel).
     </p>
 
     <section class="panel">
-      <h2>Зоны требований</h2>
-      <p class="muted" style="margin:0 0 12px;">Пустые зоны не участвуют в подсчёте. Минимум одна зона или блок «Общий контекст» ниже.</p>
-      <div id="cfgZonesHost"></div>
-      <button type="button" class="btn btn-ghost" id="cfgAddZoneBtn">+ Добавить зону</button>
+      <h2>Режим</h2>
+      <div class="cfg-mode-row">
+        <label><input type="radio" name="cfgMode" id="cfgModeZones" value="zones" checked /> <span><b>По зонам паутины</b> — вы сами раскладываете требования по зонам, как на схеме; подбираются классы решений.</span></label>
+        <label><input type="radio" name="cfgMode" id="cfgModeFree" value="free" /> <span><b>Свободный текст</b> — один скоуп клиента без деления; подбираются зоны паутины и классы (связи на схеме — следующий шаг).</span></label>
+      </div>
     </section>
 
-    <section class="panel">
-      <h2>Общий контекст (необязательно)</h2>
-      <p class="muted" style="margin:0 0 8px;">Добавляется ко всем классам как дополнительный скор (ограничения, отрасль, масштаб).</p>
-      <textarea id="cfgGlobalContext" class="search-input" rows="2" placeholder="Например: гибрид Azure + on-prem, регуляторика, единый каталог услуг…"></textarea>
-    </section>
+    <div id="cfgBlockZones">
+      <section class="panel">
+        <h2>Зоны требований (= зоны паутины)</h2>
+        <p class="muted" style="margin:0 0 12px;">Названия зон можно править. Пустые поля не участвуют в скоринге.</p>
+        <div id="cfgZonesHost"></div>
+        <button type="button" class="btn btn-ghost" id="cfgAddZoneBtn">+ Добавить зону</button>
+      </section>
+
+      <section class="panel">
+        <h2>Общий контекст (необязательно)</h2>
+        <p class="muted" style="margin:0 0 8px;">Добавляется ко всем классам как дополнительный скор.</p>
+        <textarea id="cfgGlobalContext" class="search-input" rows="2" placeholder="Например: гибрид Azure + on-prem, регуляторика…"></textarea>
+      </section>
+    </div>
+
+    <div id="cfgBlockFree" class="cfg-hidden">
+      <section class="panel">
+        <h2>Скоуп одним текстом</h2>
+        <p class="muted" style="margin:0 0 8px;">Опишите задачу клиента как получится — система оценит зоны паутины по справочнику зон и подберёт классы.</p>
+        <textarea id="cfgFreeText" class="search-input" rows="8" placeholder="Например: нужно закрыть инциденты и заявки, видеть активы и софт, готовить отчёт по лицензиям Microsoft и реагировать на уязвимости…"></textarea>
+      </section>
+    </div>
 
     <section class="panel">
       <h2>Быстрые темы</h2>
-      <p class="muted" style="margin:0 0 8px;">Вставка в первую зону требований.</p>
+      <p class="muted" style="margin:0 0 8px;">Вставка в активное поле (первая зона или абзац в зависимости от режима).</p>
       <div id="cfgChips"><span class="muted" style="font-size:11px;margin-right:6px;">Темы:</span></div>
       <div class="cfg-toolbar">
-        <button type="button" class="btn btn-primary" id="cfgRunBtn">Подобрать классы</button>
+        <button type="button" class="btn btn-primary" id="cfgRunBtn">Подобрать</button>
       </div>
       <div id="cfgStatus" aria-live="polite"></div>
     </section>
 
     <section>
-      <h2 style="font-size:15px;margin:0 0 10px;">Рекомендуемые классы</h2>
+      <h2 style="font-size:15px;margin:0 0 10px;">Результаты</h2>
       <div id="cfgResults"></div>
     </section>
 
-    <span class="badge">Конфигуратор v1 · зоны + класс</span>
+    <section class="panel" id="cfgVendorPanel">
+      <h2>Вендоры: покрытие требований</h2>
+      <p class="muted" style="margin:0 0 8px;">
+        После подбора отметьте один или несколько условных вендоров портфеля. Показан условный % и таблица «что закрывается / где пробелы» по темам из вашего запроса.
+        Когда появится матрица вендоров по функциям листа, ячейки заменятся фактами <b>есть / нет / частично</b> из данных.
+      </p>
+      <div id="cfgVendorPick" class="cfg-vendor-grid"></div>
+      <div id="cfgVendorDetail"></div>
+    </section>
+
+    <span class="badge">Конфигуратор v2 · два режима + вендоры</span>
   </div>
 </body>
 </html>

@@ -1,5 +1,5 @@
 /**
- * Конфигуратор: подбор классов решений по зонам требований.
+ * Конфигуратор: два режима (зоны паутины / свободный текст) + эвристика вендоров.
  * Зависит от window.ENTERPRISE_KB (enterprise-it-dataflow-knowledge.js).
  */
 (function () {
@@ -88,6 +88,42 @@
 
   const KB_SHEET_PROMISES = Object.create(null);
 
+  /** Последний успешный подбор: для слоя вендоров и композиции. */
+  let lastRunCtx = null;
+
+  const VENDOR_PROFILES = [
+    {
+      id: "v-itsm",
+      name: "Условный стек ITSM / ESM",
+      strong: "инцидент itsm change проблем релиз заявк ticket service каталог sla workflow bpm знания обращен дежурств major",
+      weak: "sam лиценз entitlement siem edr уязвим grc finops"
+    },
+    {
+      id: "v-fin",
+      name: "Условный стек ITAM / SAM / финансы",
+      strong: "sam лиценз itam актив entitlement авториз tco finops erp закуп списан капекс",
+      weak: "siem edr dlp инцидент itsm уязвим"
+    },
+    {
+      id: "v-sec",
+      name: "Условный стек SecOps / GRC",
+      strong: "siem soar уязвим vulnerab grc комплаенс edr pam dlp кибер soc форензик",
+      weak: "itam sam itsm finops cmdb"
+    },
+    {
+      id: "v-data",
+      name: "Условный стек CMDB / Discovery / качество данных",
+      strong: "cmdb ci golden дискавери discovery инвентар нормализ reconcil дедуп сопостав сигнатур recognition dataset",
+      weak: "лиценз инцидент siem"
+    },
+    {
+      id: "v-ops",
+      name: "Условный стек облако / мониторинг / SRE",
+      strong: "монитор observabil apm лог алерт cloud kubernetes k8s контейнер vpc s3 trace telemet sre событ correlat syslog",
+      weak: "лиценз grc itsm"
+    }
+  ];
+
   const RU_STEM_SUFFIXES = [
     "иями","ями","остями","ях","ах","ами","ого","ему","ому","ыми","ех","ох","им","ым","ую","юю","ых","их","ая","ое","ые","ий","ой","ей","ем","ам","ям","ию","ия","ие","ов","ев","ть","ся","сь","ла","ли","ло","на","но","ны","ет","ют","ат","ят","ить","ать","ение","ения","ости","ания","ован","ирован","ельн","ество","нн","лись"
   ];
@@ -107,6 +143,23 @@
     ["нормализ","dedup","дедуп","сопостав","reconcil","сигнатур","recognition","дедуплик"],
     ["данн","data","dataset","отчет","отчёт","dashboard","kpi","аналит"],
     ["событ","event","syslog","коррел","correlat","операц","sre"]
+  ];
+
+  const THEME_GROUP_LABELS = [
+    "Инциденты / ITSM / обращения",
+    "Лицензии / SAM / entitlement",
+    "Discovery / инвентаризация",
+    "Безопасность / риски / SOC",
+    "Изменения / релизы / патчи",
+    "CMDB / ITAM / активы",
+    "IAM / доступы / PAM",
+    "Мониторинг / APM / логи",
+    "FinOps / стоимость / закупки",
+    "Облако / K8s / VPC",
+    "Сервис-деск / каталог / SLA",
+    "Нормализация / reconciliation",
+    "Данные / отчёты / KPI",
+    "События / корреляция / SRE"
   ];
 
   function nrm(value) {
@@ -309,6 +362,14 @@
     return score;
   }
 
+  function buildZoneSearchItem(zoneId) {
+    const m = zoneById(zoneId);
+    const kb = zoneKbById(zoneId) || {};
+    const title = m?.title || zoneId;
+    const body = `${kb.what || ""} ${kb.techGoal || ""} ${kb.businessGoal || ""} ${kb.howWorks || ""}`;
+    return { title, body };
+  }
+
   function buildNodeSearchItem(node) {
     const ref = classRefByNode(node)?.data || {};
     const sheet = classSheetByNode(node)?.data || {};
@@ -346,12 +407,219 @@
     return flat.slice(0, 12).join(", ").slice(0, 400);
   }
 
-  async function runConfigurator() {
-    const statusEl = document.getElementById("cfgStatus");
-    const resultsEl = document.getElementById("cfgResults");
-    const globalTa = document.getElementById("cfgGlobalContext");
-    if (!resultsEl) return;
+  function isFreeMode() {
+    return !!document.getElementById("cfgModeFree")?.checked;
+  }
 
+  function getChipTargetTextarea() {
+    if (isFreeMode()) return document.getElementById("cfgFreeText");
+    return document.querySelector(".cfg-zone-row .cfg-zone-text");
+  }
+
+  function themeActiveForTokens(gi, tokens) {
+    const g = THESAURUS_GROUPS[gi];
+    return tokens.some((t) =>
+      g.some((k) => {
+        const pt = prepSearch(t);
+        const pk = prepSearch(k);
+        if (!pk || pk.length < 2) return false;
+        return pt.includes(pk) || pk.includes(pt) || stemToken(pt) === stemToken(pk);
+      })
+    );
+  }
+
+  function activeThemeIndices(tokens) {
+    const out = [];
+    for (let i = 0; i < THESAURUS_GROUPS.length; i++) {
+      if (themeActiveForTokens(i, tokens)) out.push(i);
+    }
+    return out;
+  }
+
+  function vendorThemeStatus(v, gi) {
+    const SH = prepSearch(v.strong);
+    const WH = prepSearch(v.weak);
+    let hitS = false;
+    let hitW = false;
+    for (const k of THESAURUS_GROUPS[gi]) {
+      const pk = prepSearch(k);
+      if (pk.length < 3) continue;
+      if (SH.includes(pk) || SH.includes(stemToken(pk))) hitS = true;
+      if (WH.includes(pk) || WH.includes(stemToken(pk))) hitW = true;
+    }
+    if (hitS && !hitW) return "yes";
+    if (hitW && !hitS) return "no";
+    if (hitS && hitW) return "part";
+    return "part";
+  }
+
+  function statusWeight(st) {
+    if (st === "yes") return 1;
+    if (st === "part") return 0.45;
+    return 0;
+  }
+
+  function vendorCoveragePct(v, activeThemes) {
+    if (!activeThemes.length) return 72;
+    let sum = 0;
+    for (const gi of activeThemes) sum += statusWeight(vendorThemeStatus(v, gi));
+    return Math.min(100, Math.round((100 * sum) / activeThemes.length));
+  }
+
+  function statusLabelRu(st) {
+    if (st === "yes") return { t: "Есть", c: "cfg-st-yes" };
+    if (st === "part") return { t: "Частично", c: "cfg-st-part" };
+    return { t: "Нет / слабо", c: "cfg-st-no" };
+  }
+
+  function selectedVendors() {
+    return VENDOR_PROFILES.filter((v) => document.getElementById(`cfg-v-${v.id}`)?.checked);
+  }
+
+  function renderVendorDetail() {
+    const host = document.getElementById("cfgVendorDetail");
+    if (!host || !lastRunCtx) {
+      if (host) host.innerHTML = `<p class="muted">Сначала выполните подбор — появятся темы требований и расчёт по вендорам.</p>`;
+      return;
+    }
+    const picked = selectedVendors();
+    const themes = lastRunCtx.activeThemeIndices;
+    if (!picked.length) {
+      host.innerHTML = `<p class="muted">Отметьте один или несколько вендоров портфеля — покажем матрицу «есть / нет» по темам из запроса.</p>`;
+      return;
+    }
+
+    if (!themes.length) {
+      host.innerHTML = `<p class="muted">По запросу не выделились темы из тезауруса — уточните формулировку (например: инциденты, CMDB, лицензии). Матрица вендоров появится, когда темы будут распознаны.</p>`;
+      return;
+    }
+
+    const rows = themes.map((gi) => {
+      const label = THEME_GROUP_LABELS[gi] || `Тема ${gi + 1}`;
+      const cells = picked.map((v) => {
+        const st = vendorThemeStatus(v, gi);
+        const { t, c } = statusLabelRu(st);
+        return `<td class="${c}">${esc(t)}</td>`;
+      }).join("");
+      return `<tr><th scope="row">${esc(label)}</th>${cells}</tr>`;
+    });
+
+    const head = `<tr><th scope="col">Тема из требований</th>${picked.map((v) => `<th scope="col">${esc(v.name)}</th>`).join("")}</tr>`;
+
+    const pctBlocks = picked
+      .map((v) => {
+        const pct = vendorCoveragePct(v, themes);
+        return `<div style="flex:1;min-width:120px;"><div class="muted" style="font-size:11px;">${esc(v.name)}</div><div class="cfg-pct">${pct}%</div><div class="muted" style="font-size:10px;">условное покрытие тем</div></div>`;
+      })
+      .join("");
+
+    const composite = buildCompositePlan(picked, themes);
+
+    host.innerHTML = `
+      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;">${pctBlocks}</div>
+      <table class="cfg-vt" aria-label="Покрытие тем вендорами">
+        <thead>${head}</thead>
+        <tbody>${rows.join("")}</tbody>
+      </table>
+      <div class="cfg-composite"><b>Черновик комплексной конфигурации</b> (по соотношению тем; заменится оптимизатором по матрице функций):<br/>${esc(composite)}</div>
+    `;
+  }
+
+  function buildCompositePlan(vendors, themes) {
+    if (!themes.length) return "Уточните запрос — не выделены темы для сопоставления.";
+    const parts = [];
+    for (const gi of themes) {
+      const label = THEME_GROUP_LABELS[gi] || `Тема ${gi + 1}`;
+      let best = null;
+      let bestW = -1;
+      for (const v of vendors) {
+        const w = statusWeight(vendorThemeStatus(v, gi));
+        if (w > bestW) {
+          bestW = w;
+          best = v;
+        }
+      }
+      if (best && bestW > 0) {
+        parts.push(`${label}: опорный контур — «${best.name}»`);
+      } else {
+        parts.push(`${label}: нет уверенного покрытия среди выбранных вендоров — рассмотреть отдельный продукт или доработку.`);
+      }
+    }
+    if (vendors.length > 1) {
+      parts.push(`Интеграция: заложить шину обмена и единый каталог идентичностей между ${vendors.length} контурами.`);
+    }
+    return parts.join(". ");
+  }
+
+  function renderVendorPick() {
+    const host = document.getElementById("cfgVendorPick");
+    if (!host) return;
+    host.innerHTML = VENDOR_PROFILES.map((v) => `
+      <label><input type="checkbox" id="cfg-v-${esc(v.id)}" data-vendor-id="${esc(v.id)}" /> ${esc(v.name)}</label>
+    `).join("");
+    host.querySelectorAll("input[type=checkbox]").forEach((el) => {
+      el.addEventListener("change", () => renderVendorDetail());
+    });
+  }
+
+  function buildClassCardHtml(row, hl, options) {
+    const n = row.node;
+    const labelPlain = n.label.replace(/\n/g, " ").trim();
+    const canonical = row.classRefKey || row.sheetKey || labelPlain;
+    const subParts = [];
+    if (row.classRefKey && row.sheetKey && row.classRefKey !== row.sheetKey) {
+      subParts.push(`Справочник: <b>${esc(row.classRefKey)}</b> · лист: <code>${esc(row.sheetKey)}</code>`);
+    } else if (row.classRefKey) {
+      subParts.push(`Класс (справочник): <b>${esc(row.classRefKey)}</b>`);
+    } else if (row.sheetKey) {
+      subParts.push(`Лист KB: <code>${esc(row.sheetKey)}</code>`);
+    }
+    subParts.push(`На схеме: <b>${esc(labelPlain)}</b>`);
+    if (row.mapZoneTitle) subParts.push(`Зона карты: ${esc(row.mapZoneTitle)}`);
+
+    let chips = "";
+    let metaLine = "";
+    if (options?.mode === "zones") {
+      chips = row.perZone
+        .filter((z) => !z.skipped)
+        .map((z) => {
+          const cls = z.score > 0 ? "cfg-chip-hit" : "cfg-chip-miss";
+          return `<span class="cfg-zone-chip ${cls}" title="${esc(z.title)}">${esc(z.title)}: ${z.score}</span>`;
+        })
+        .join("");
+      const globalLine =
+        row.globalTokens?.length > 0
+          ? `<div class="cfg-global-line"><span class="cfg-zone-chip ${row.globalScore > 0 ? "cfg-chip-hit" : "cfg-chip-miss"}">Общий контекст: ${row.globalScore}</span></div>`
+          : "";
+      chips += globalLine;
+      const covPct = Math.round((row.coverage || 0) * 100);
+      metaLine = `<div class="cfg-card-meta">Итого ${Math.round(row.total * 10) / 10} · зоны с совпадениями ${row.matchedActive}/${row.activeZoneCount || 0} (${covPct}%)</div>`;
+    } else {
+      chips = `<span class="cfg-zone-chip ${row.freeScore > 0 ? "cfg-chip-hit" : "cfg-chip-miss"}">Скоуп: ${row.freeScore}</span>`;
+      if (row.zoneBoost > 0) {
+        chips += ` <span class="cfg-zone-chip cfg-chip-hit" title="Совпадение с предложенной зоной">+зона «${esc(row.zoneBoostTitle || "")}»</span>`;
+      }
+      metaLine = `<div class="cfg-card-meta">Итого ${Math.round(row.total * 10) / 10}${row.zoneBoost ? " (с бонусом за зону паутины)" : ""}</div>`;
+    }
+
+    const mapHref = indexMapUrl(n.id, hl);
+    const detailHref = classDetailUrl(n, row.sheetMeta);
+
+    return `<article class="cfg-card" data-node-id="${esc(n.id)}">
+  <div class="cfg-card-score">${Math.round(row.total * 10) / 10}</div>
+  <h3 class="cfg-card-class">${esc(canonical)}</h3>
+  <div class="cfg-card-sub muted">${subParts.join(" · ")}</div>
+  ${metaLine}
+  <div class="cfg-zone-chips">${chips}</div>
+  <div class="cfg-card-actions">
+    <a class="btn btn-primary" href="${esc(mapHref)}">На схеме + база</a>
+    <a class="btn" href="${esc(detailHref)}">Лист функций</a>
+  </div>
+</article>`;
+  }
+
+  async function runModeZones(statusEl, resultsEl) {
+    const globalTa = document.getElementById("cfgGlobalContext");
     const zoneRows = Array.from(document.querySelectorAll(".cfg-zone-row"));
     const zoneQueries = [];
     for (const row of zoneRows) {
@@ -367,8 +635,10 @@
 
     const hasAnyZoneTokens = zoneQueries.some((z) => z.tokens.length);
     if (!hasAnyZoneTokens && !globalTokens.length) {
-      if (statusEl) statusEl.textContent = "Заполните хотя бы одну зону требований или общий контекст (слова от 3 букв).";
+      if (statusEl) statusEl.textContent = "Заполните хотя бы одну зону требований или общий контекст.";
       resultsEl.innerHTML = "";
+      lastRunCtx = null;
+      renderVendorDetail();
       return;
     }
 
@@ -408,6 +678,7 @@
         sheetMeta,
         mapZoneTitle: z?.title || "",
         perZone,
+        globalTokens,
         globalScore,
         total,
         coverage,
@@ -426,65 +697,165 @@
     const hlParts = zoneQueries.filter((z) => z.text).map((z) => z.text);
     if (globalText) hlParts.push(globalText);
     const hl = mergeHighlightQuery(hlParts);
+    const allToks = expandQueryTokens(tokenizeQuery(hlParts.join(" ")));
 
     if (statusEl) {
       statusEl.textContent = top.length
-        ? `Показано классов: ${top.length}. Сортировка: сумма по зонам + общий контекст; при равенстве — покрытие зон.`
-        : "Нет совпадений — смягчите или разнесите формулировки по зонам.";
+        ? `Режим «зоны»: показано классов ${top.length}. Сортировка: сумма по зонам + общий контекст; затем покрытие зон.`
+        : "Нет совпадений — смягчите формулировки.";
     }
 
     if (!top.length) {
-      resultsEl.innerHTML = `<p class="muted">Попробуйте тезаурус: ITSM, CMDB, лицензии, IAM, мониторинг, инциденты…</p>`;
+      resultsEl.innerHTML = `<p class="muted">Попробуйте тезаурус: ITSM, CMDB, лицензии, IAM, мониторинг…</p>`;
+      lastRunCtx = null;
+      renderVendorDetail();
       return;
     }
 
-    resultsEl.innerHTML = top
-      .map((row) => {
-        const n = row.node;
-        const labelPlain = n.label.replace(/\n/g, " ").trim();
-        const canonical = row.classRefKey || row.sheetKey || labelPlain;
-        const subParts = [];
-        if (row.classRefKey && row.sheetKey && row.classRefKey !== row.sheetKey) {
-          subParts.push(`Справочник: <b>${esc(row.classRefKey)}</b> · лист: <code>${esc(row.sheetKey)}</code>`);
-        } else if (row.classRefKey) {
-          subParts.push(`Класс (справочник): <b>${esc(row.classRefKey)}</b>`);
-        } else if (row.sheetKey) {
-          subParts.push(`Лист KB: <code>${esc(row.sheetKey)}</code>`);
-        }
-        subParts.push(`На схеме: <b>${esc(labelPlain)}</b>`);
-        if (row.mapZoneTitle) subParts.push(`Зона карты: ${esc(row.mapZoneTitle)}`);
+    resultsEl.innerHTML = `<div class="cfg-subh">Классы решений</div>` + top.map((row) => buildClassCardHtml(row, hl, { mode: "zones" })).join("");
 
-        const chips = row.perZone
-          .filter((z) => !z.skipped)
-          .map((z) => {
-            const cls = z.score > 0 ? "cfg-chip-hit" : "cfg-chip-miss";
-            return `<span class="cfg-zone-chip ${cls}" title="${esc(z.title)}">${esc(z.title)}: ${z.score}</span>`;
-          })
-          .join("");
-        const globalLine =
-          globalTokens.length > 0
-            ? `<div class="cfg-global-line"><span class="cfg-zone-chip ${row.globalScore > 0 ? "cfg-chip-hit" : "cfg-chip-miss"}">Общий контекст: ${row.globalScore}</span></div>`
-            : "";
+    lastRunCtx = {
+      mode: "zones",
+      requirementSummary: hl,
+      tokens: allToks,
+      activeThemeIndices: activeThemeIndices(allToks),
+      topClasses: top.slice(0, 8)
+    };
+    renderVendorDetail();
+  }
 
-        const covPct = Math.round((row.coverage || 0) * 100);
-        const metaLine = `<div class="cfg-card-meta">Итого ${Math.round(row.total * 10) / 10} · зоны с совпадениями ${row.matchedActive}/${row.activeZoneCount || 0} (${covPct}%)</div>`;
+  async function runModeFree(statusEl, resultsEl) {
+    const ta = document.getElementById("cfgFreeText");
+    const raw = String(ta?.value || "").trim();
+    const rawToks = tokenizeQuery(raw);
+    const tokens = expandQueryTokens(rawToks);
 
-        const mapHref = indexMapUrl(n.id, hl);
-        const detailHref = classDetailUrl(n, row.sheetMeta);
+    if (!tokens.length) {
+      if (statusEl) statusEl.textContent = "Введите абзац скоупа (слова от 2 букв; лучше 3+ для устойчивости).";
+      resultsEl.innerHTML = "";
+      lastRunCtx = null;
+      renderVendorDetail();
+      return;
+    }
 
-        return `<article class="cfg-card" data-node-id="${esc(n.id)}">
-  <div class="cfg-card-score">${Math.round(row.total * 10) / 10}</div>
-  <h3 class="cfg-card-class">${esc(canonical)}</h3>
-  <div class="cfg-card-sub muted">${subParts.join(" · ")}</div>
-  ${metaLine}
-  <div class="cfg-zone-chips">${chips}${globalLine}</div>
-  <div class="cfg-card-actions">
-    <a class="btn btn-primary" href="${esc(mapHref)}">На схеме + база</a>
-    <a class="btn" href="${esc(detailHref)}">Лист функций</a>
-  </div>
-</article>`;
-      })
-      .join("");
+    if (statusEl) statusEl.textContent = "Подбор зон паутины и классов…";
+    resultsEl.innerHTML = "";
+
+    const zoneScored = [];
+    for (const z of MAP.zones) {
+      const item = buildZoneSearchItem(z.id);
+      const s = scoreSearchItem(item, tokens);
+      if (s > 0) zoneScored.push({ zone: z, score: s });
+    }
+    zoneScored.sort((a, b) => b.score - a.score);
+    const topZones = zoneScored.slice(0, 5);
+    const topZoneIdSet = new Set(topZones.map((x) => x.zone.id));
+
+    const scored = [];
+    for (const n of MAP.nodes) {
+      await ensureLazyForNode(n);
+      const item = buildNodeSearchItem(n);
+      const refMeta = classRefByNode(n);
+      const sheetMeta = classSheetByNode(n);
+      const classRefKey = refMeta?.key || "";
+      const sheetKey = sheetMeta?.key || "";
+      const freeScore = scoreSearchItem(item, tokens);
+      let zoneBoost = 0;
+      let zoneBoostTitle = "";
+      if (n.zoneId && topZoneIdSet.has(n.zoneId)) {
+        const zr = topZones.find((t) => t.zone.id === n.zoneId);
+        zoneBoost = Math.min(18, Math.round((zr?.score || 0) * 0.35));
+        zoneBoostTitle = zoneById(n.zoneId)?.title || n.zoneId;
+      }
+      const total = freeScore + zoneBoost;
+      if (total <= 0) continue;
+      const z = n.zoneId ? zoneById(n.zoneId) : null;
+      scored.push({
+        node: n,
+        classRefKey,
+        sheetKey,
+        refMeta,
+        sheetMeta,
+        mapZoneTitle: z?.title || "",
+        freeScore,
+        zoneBoost,
+        zoneBoostTitle,
+        total
+      });
+    }
+
+    scored.sort((a, b) => {
+      if (b.total !== a.total) return b.total - a.total;
+      return b.freeScore - a.freeScore;
+    });
+
+    const top = scored.slice(0, 16);
+    const hl = mergeHighlightQuery([raw]);
+
+    const zoneBlock =
+      topZones.length > 0
+        ? `<div class="cfg-subh">Предлагаемые зоны паутины</div>
+<div class="cfg-zone-rec">${topZones
+            .map(
+              (r) =>
+                `<div class="cfg-zone-rec-card"><div><b>${esc(r.zone.title)}</b><div class="muted" style="margin-top:4px;font-size:11px;">По тексту справочника зоны в KB</div></div><div><span class="cfg-zone-chip cfg-chip-hit">скор ${r.score}</span></div></div>`
+            )
+            .join("")}</div>`
+        : `<p class="muted">Зоны не выделились по запросу — попробуйте другие формулировки (ITSM, discovery, CMDB…).</p>`;
+
+    if (statusEl) {
+      statusEl.textContent = top.length
+        ? `Режим «свободный текст»: зон с совпадениями ${topZones.length}, классов в топе ${top.length}.`
+        : "Классы не найдены — расширьте описание.";
+    }
+
+    if (!top.length) {
+      resultsEl.innerHTML = zoneBlock + `<p class="muted" style="margin-top:12px;">Классы не ранжированы — уточните ИТ-термины.</p>`;
+      lastRunCtx = {
+        mode: "free",
+        requirementSummary: hl,
+        tokens,
+        activeThemeIndices: activeThemeIndices(tokens),
+        topClasses: []
+      };
+      renderVendorDetail();
+      return;
+    }
+
+    resultsEl.innerHTML =
+      zoneBlock +
+      `<div class="cfg-subh">Классы решений</div>` +
+      top.map((row) => buildClassCardHtml(row, hl, { mode: "free" })).join("");
+
+    lastRunCtx = {
+      mode: "free",
+      requirementSummary: hl,
+      tokens,
+      activeThemeIndices: activeThemeIndices(tokens),
+      topClasses: top.slice(0, 8)
+    };
+    renderVendorDetail();
+  }
+
+  async function runConfigurator() {
+    const statusEl = document.getElementById("cfgStatus");
+    const resultsEl = document.getElementById("cfgResults");
+    if (!resultsEl) return;
+    if (isFreeMode()) await runModeFree(statusEl, resultsEl);
+    else await runModeZones(statusEl, resultsEl);
+  }
+
+  function syncModeUi() {
+    const zonesBlock = document.getElementById("cfgBlockZones");
+    const freeBlock = document.getElementById("cfgBlockFree");
+    if (!zonesBlock || !freeBlock) return;
+    if (isFreeMode()) {
+      zonesBlock.classList.add("cfg-hidden");
+      freeBlock.classList.remove("cfg-hidden");
+    } else {
+      zonesBlock.classList.remove("cfg-hidden");
+      freeBlock.classList.add("cfg-hidden");
+    }
   }
 
   function addZoneRow(title, placeholder) {
@@ -529,11 +900,11 @@
       b.className = "cfg-chip";
       b.textContent = label;
       b.addEventListener("click", () => {
-        const first = document.querySelector(".cfg-zone-row .cfg-zone-text");
-        if (!first) return;
-        const cur = first.value.trim();
-        first.value = cur ? `${cur}, ${label}` : label;
-        first.focus();
+        const target = getChipTargetTextarea();
+        if (!target) return;
+        const cur = target.value.trim();
+        target.value = cur ? `${cur}, ${label}` : label;
+        target.focus();
       });
       chips.appendChild(b);
     });
@@ -541,16 +912,27 @@
 
   document.addEventListener("DOMContentLoaded", () => {
     initChips();
+    renderVendorPick();
+    renderVendorDetail();
+
     const host = document.getElementById("cfgZonesHost");
     if (host && !host.dataset.inited) {
       host.dataset.inited = "1";
       host.innerHTML = "";
-      addZoneRow("Операции и сервис", "Например: инциденты, заявки, SLA, каталог услуг, изменения…");
-      addZoneRow("Данные и активы", "CMDB, discovery, нормализация, реестр ПО, облачный инвентарь…");
-      addZoneRow("Безопасность и риски", "уязвимости, SIEM, EDR, доступы, комплаенс…");
-      addZoneRow("Финансы и лицензии", "SAM, entitlement, отчёты для аудита, FinOps…");
+      addZoneRow("Операции и сервис (z-itsm)", "Инциденты, заявки, SLA, каталог, изменения…");
+      addZoneRow("Данные и активы (z-disc / z-norm / z-cmdb)", "Discovery, CMDB, нормализация, реестр ПО…");
+      addZoneRow("Безопасность (z-sec)", "SIEM, уязвимости, EDR, доступы…");
+      addZoneRow("Финансы и лицензии (z-fin)", "SAM, entitlement, FinOps, аудит…");
     }
+
     document.getElementById("cfgAddZoneBtn")?.addEventListener("click", () => addZoneRow("Новая зона", "Опишите требования…"));
     document.getElementById("cfgRunBtn")?.addEventListener("click", () => void runConfigurator());
+
+    document.querySelectorAll('input[name="cfgMode"]').forEach((r) => {
+      r.addEventListener("change", () => {
+        syncModeUi();
+      });
+    });
+    syncModeUi();
   });
 })();
