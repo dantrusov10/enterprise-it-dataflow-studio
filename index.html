@@ -81,6 +81,9 @@
     .edge-direct { stroke: #0f172a; stroke-width: 2.55; }
     .edge-alt { stroke: #64748b; stroke-width: 2.15; stroke-dasharray: 7 6; opacity: 0.94; }
     .edge-zone { stroke: #0f766e; stroke-width: 2.45; stroke-dasharray: 2 10; opacity: 0.9; }
+    .edge-bundle-ind { stroke: #7c3aed; stroke-width: 2.15; stroke-dasharray: 5 6; opacity: 0.93; }
+    .edge-bundle-log { stroke: #c2410c; stroke-width: 2.05; stroke-dasharray: 3 5; opacity: 0.92; }
+    .edge-label.edge-label--bundle-log { fill: #9a3412; }
     .zone.map-dimmed {
       opacity: 0.16;
       filter: grayscale(0.95) blur(0.85px);
@@ -141,6 +144,8 @@
     .kb-card--edge--direct { border-left: 3px solid #1e40af; padding-left: 10px; margin-left: -2px; }
     .kb-card--edge--zone { border-left: 3px solid #0f766e; padding-left: 10px; margin-left: -2px; }
     .kb-card--edge--alt { border-left: 3px solid #64748b; padding-left: 10px; margin-left: -2px; }
+    .kb-card--edge--bundle-ind { border-left: 3px solid #7c3aed; padding-left: 10px; margin-left: -2px; }
+    .kb-card--edge--bundle-log { border-left: 3px solid #ea580c; padding-left: 10px; margin-left: -2px; }
     .kb-card--hub { border-left: 3px solid #0f172a; padding-left: 10px; margin-left: -2px; }
     .result-item:hover { background: #f8fafc; }
     .muted-text { color: #64748b; font-size: 11px; }
@@ -360,7 +365,7 @@
           <button type="button" class="btn" id="kbGapsRefreshBtn" style="margin-bottom:6px;">Обновить отчёт</button>
           <div id="kbGapsReport" class="kb-gaps-report muted-text" style="font-size:11px;line-height:1.4;max-height:280px;overflow:auto;"></div>
         </div>
-        <span class="badge">v14 projectMap: hash + индуцированный граф</span>
+        <span class="badge">v15 projectMap: мосты + прямой/косвенный</span>
       </div>
     </aside>
     <div class="workspace-wrap">
@@ -541,6 +546,23 @@
     }
 
     function buildEdgeKnowledgeSections(e) {
+      if (e.type === "bundle") {
+        const indirect = !!e.bundleIndirect;
+        const lab = String(e.label || "").trim();
+        return {
+          what: indirect
+            ? `Сводная «косвенная» связь для режима проекта: на полной схеме между этими классами есть путь через промежуточные узлы (см. подпись «${lab || "косвенно"}»). На урезанной карте промежуточные системы скрыты — линия показывает ожидаемый обмен без обхода всего графа.`
+            : `Связь по порядку подбора в конфигураторе: «${lab || "логика бандла"}». Это не обязательно отдельный интеграционный канал в KB, а визуальная нить между выбранными продуктами/классами на карте проекта.`,
+          why: indirect
+            ? `Чтобы карта проекта не выглядела «рваной», когда выбраны классы из разных зон, но в базовой архитектуре они связаны через CMDB, ITAM, шину и т. п.`
+            : `Чтобы зафиксировать ожидаемую цепочку внедрения (порядок выбора в конфигураторе) даже если в KB нет прямой стрелки между соседними позициями.`,
+          atSource: `Конец «${endpointKbBundle(e.from).title}» — материалы класса в базе знаний.`,
+          atDest: `Конец «${endpointKbBundle(e.to).title}» — материалы класса в базе знаний.`,
+          research: indirect
+            ? `Проверьте полную схему и листы промежуточных классов на пути — там описаны фактические API, очереди и объекты учёта.`
+            : `Уточните интеграцию по листам классов и вендорским матрицам; стрелка отражает логику подбора на карте проекта.`
+        };
+      }
       if (e.kb && typeof e.kb === "object") {
         const k = e.kb;
         return {
@@ -1270,11 +1292,33 @@
         const typeBadge =
           e.type === "zone"
             ? `<span class="pill" style="background:#ccfbf1;border-color:#5eead4;color:#0f766e;">Поток зон</span>`
-            : e.type === "alt"
-              ? `<span class="pill" style="background:#f1f5f9;border-color:#94a3b8;color:#334155;">Косвенная / оговорка</span>`
-              : `<span class="pill" style="background:#eff6ff;border-color:#93c5fd;color:#1e40af;">Прямой обмен классов</span>`;
-        const edgeCardMod = e.type === "zone" ? "kb-card--edge--zone" : e.type === "alt" ? "kb-card--edge--alt" : "kb-card--edge--direct";
-        const edgeTplNum = e.type === "zone" ? "Шаблон 3 · зональный поток" : e.type === "alt" ? "Шаблон 4 · косвенная связь" : "Шаблон 2 / 6 · прямая классовая связь";
+            : e.type === "bundle"
+              ? e.bundleIndirect
+                ? `<span class="pill" style="background:#ede9fe;border-color:#a78bfa;color:#5b21b6;">Косвенно (карта проекта)</span>`
+                : `<span class="pill" style="background:#ffedd5;border-color:#fdba74;color:#9a3412;">Логика бандла</span>`
+              : e.type === "alt"
+                ? `<span class="pill" style="background:#f1f5f9;border-color:#94a3b8;color:#334155;">Косвенная / оговорка</span>`
+                : `<span class="pill" style="background:#eff6ff;border-color:#93c5fd;color:#1e40af;">Прямой обмен классов</span>`;
+        const edgeCardMod =
+          e.type === "zone"
+            ? "kb-card--edge--zone"
+            : e.type === "bundle"
+              ? e.bundleIndirect
+                ? "kb-card--edge--bundle-ind"
+                : "kb-card--edge--bundle-log"
+              : e.type === "alt"
+                ? "kb-card--edge--alt"
+                : "kb-card--edge--direct";
+        const edgeTplNum =
+          e.type === "zone"
+            ? "Шаблон 3 · зональный поток"
+            : e.type === "bundle"
+              ? e.bundleIndirect
+                ? "Карта проекта · косвенная сводка"
+                : "Карта проекта · цепочка подбора"
+              : e.type === "alt"
+                ? "Шаблон 4 · косвенная связь"
+                : "Шаблон 2 / 6 · прямая классовая связь";
         entityCard.innerHTML = `
           <div class="kb-card kb-card--edge ${edgeCardMod}">
             <h4>Поток данных: ${from} → ${to}</h4>
@@ -1729,6 +1773,7 @@
     }
 
     function isEdgeTypePassFilter(e) {
+      if (e.type === "bundle") return true;
       if (e.type === "direct") return !!viewEdgesDirect?.checked;
       if (e.type === "alt") return !!viewEdgesAlt?.checked;
       if (e.type === "zone") return !!viewEdgesZone?.checked;
@@ -1860,6 +1905,140 @@
       return null;
     }
 
+    function edgeKeyUndirected(a, b) {
+      return String(a) < String(b) ? `${a}\u0001${b}` : `${b}\u0001${a}`;
+    }
+
+    function baselineUndirectedNodeEdges(be) {
+      const list = [];
+      for (const e of be.edges || []) {
+        if (e.type === "zone") continue;
+        const a = String(e.from);
+        const b = String(e.to);
+        if (!a.startsWith("n-") || !b.startsWith("n-")) continue;
+        list.push(e);
+      }
+      return list;
+    }
+
+    function shortestNodePathInBaseline(be, start, goal) {
+      const edges = baselineUndirectedNodeEdges(be);
+      const adj = new Map();
+      for (const e of edges) {
+        if (!adj.has(e.from)) adj.set(e.from, []);
+        if (!adj.has(e.to)) adj.set(e.to, []);
+        adj.get(e.from).push(e.to);
+        adj.get(e.to).push(e.from);
+      }
+      if (!adj.has(start) || !adj.has(goal)) return start === goal ? [start] : null;
+      const q = [start];
+      const prev = new Map([[start, null]]);
+      for (let qi = 0; qi < q.length; qi++) {
+        const u = q[qi];
+        if (u === goal) break;
+        for (const v of adj.get(u) || []) {
+          if (prev.has(v)) continue;
+          prev.set(v, u);
+          q.push(v);
+        }
+      }
+      if (!prev.has(goal)) return null;
+      const out = [];
+      let cur = goal;
+      while (cur != null) {
+        out.push(cur);
+        cur = prev.get(cur);
+      }
+      out.reverse();
+      return out;
+    }
+
+    function findBaselineNodeEdge(be, a, b) {
+      return baselineUndirectedNodeEdges(be).find((ed) => (ed.from === a && ed.to === b) || (ed.from === b && ed.to === a));
+    }
+
+    function newAugmentedEdgeId(prefix) {
+      return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+    }
+
+    /** Дополняет индуцированный граф проекта: «открытые» прямые рёбра из полной схемы, косвенные сводки по кратчайшему пути, цепочка по picks. */
+    function appendProjectMapBridgeEdges(baseline, Rset, picks) {
+      if (!baseline || !baseline.edges) return;
+      const Rarr = [...Rset];
+      const present = new Set();
+      for (const e of state.edges) {
+        if (e.type === "zone") continue;
+        if (String(e.from).startsWith("n-") && String(e.to).startsWith("n-")) present.add(edgeKeyUndirected(e.from, e.to));
+      }
+      const extras = [];
+
+      function baselineNodeTitle(id) {
+        const n = baseline.nodes.find((x) => x.id === id);
+        if (!n) return String(id);
+        return String(n.label || "").replace(/\n/g, " ").trim().slice(0, 36);
+      }
+
+      for (let i = 0; i < Rarr.length; i++) {
+        for (let j = i + 1; j < Rarr.length; j++) {
+          const a = Rarr[i];
+          const b = Rarr[j];
+          const ek = edgeKeyUndirected(a, b);
+          if (present.has(ek)) continue;
+          const path = shortestNodePathInBaseline(baseline, a, b);
+          if (!path || path.length < 2) continue;
+          if (path.length === 2) {
+            const orig = findBaselineNodeEdge(baseline, a, b);
+            if (!orig) continue;
+            const copy = JSON.parse(JSON.stringify(orig));
+            delete copy.manualRoute;
+            delete copy.orthoPts;
+            delete copy.c;
+            delete copy.polyline;
+            copy.id = newAugmentedEdgeId("e-pm-open");
+            const olab = String(orig.label || "").trim();
+            copy.label = olab ? `${olab} · карта проекта (прямая)` : "карта проекта: прямая связь";
+            extras.push(copy);
+            present.add(ek);
+            continue;
+          }
+          const mids = path.slice(1, -1);
+          const hint = mids.slice(0, 4).map(baselineNodeTitle).join(" → ");
+          extras.push({
+            id: newAugmentedEdgeId("e-pm-ind"),
+            from: a,
+            to: b,
+            type: "bundle",
+            bundleIndirect: true,
+            label: `косвенно: ${hint}${mids.length > 4 ? "…" : ""}`
+          });
+          present.add(ek);
+        }
+      }
+
+      const seq = [];
+      for (const p of picks || []) {
+        const nid = p && p.nodeId;
+        if (nid && Rset.has(nid) && !seq.includes(nid)) seq.push(nid);
+      }
+      for (let k = 0; k < seq.length - 1; k++) {
+        const a = seq[k];
+        const b = seq[k + 1];
+        const ek = edgeKeyUndirected(a, b);
+        if (present.has(ek)) continue;
+        extras.push({
+          id: newAugmentedEdgeId("e-pm-log"),
+          from: a,
+          to: b,
+          type: "bundle",
+          bundleIndirect: false,
+          label: "логика бандла (порядок подбора)"
+        });
+        present.add(ek);
+      }
+
+      if (extras.length) state.edges = state.edges.concat(extras);
+    }
+
     function tryApplyProjectMapFromStorage() {
       const p = new URLSearchParams(location.search);
       if (p.get("projectMap") !== "1") return;
@@ -1867,6 +2046,18 @@
       if (!data) return;
       const seedArr = Array.from(new Set((data.focusNodeIds || []).filter((id) => nodeById(id))));
       if (!seedArr.length) return;
+      if (!window.__ARCH_BASELINE__) {
+        try {
+          window.__ARCH_BASELINE__ = {
+            nodes: JSON.parse(JSON.stringify(state.nodes)),
+            edges: JSON.parse(JSON.stringify(state.edges)),
+            zones: JSON.parse(JSON.stringify(state.zones))
+          };
+        } catch {
+          window.__ARCH_BASELINE__ = null;
+        }
+      }
+      const baseline = window.__ARCH_BASELINE__;
       /** Только выбранные классы и рёбра между ними (без «раздувания» через CMDB и весь граф). */
       const R = new Set(seedArr);
       const zoneIds = new Set();
@@ -1885,6 +2076,7 @@
       state.zones = zones;
       state.nodes = nodes;
       state.edges = edges;
+      if (baseline) appendProjectMapBridgeEdges(baseline, R, data.picks || []);
       window.PROJECT_MAP_CTX = {
         active: true,
         vendorsByNode: data.vendorsByNode || {},
@@ -1918,7 +2110,7 @@
         .join("") || '<li class="muted-text" style="font-size:11px;">Пока пусто — добавьте источники данных и внедрённые технологии.</li>';
       return `
         <h3>Проект по конфигуратору</h3>
-        <p class="hint" style="font-size:11px;margin:0 0 8px;line-height:1.35;">Урезанная схема: <b>${nClass}</b> классов, <b>${nZones}</b> зон, <b>${nEdges}</b> связей (только выбранные классы и линии <i>между ними</i>, без обхода всего графа через CMDB). Класс → база с фильтром по вендорам.</p>
+        <p class="hint" style="font-size:11px;margin:0 0 8px;line-height:1.35;">Урезанная схема: <b>${nClass}</b> классов, <b>${nZones}</b> зон, <b>${nEdges}</b> связей. Базовые линии между выбранными классами сохраняются; если пары нет на индуцированном графе — подставляется прямая связь из полной схемы (та же стилистика), либо <b>косвенная</b> (фиолетовая пунктир) по кратчайшему пути, либо <b>логика бандла</b> (оранжевый пунктир) по порядку подбора. Класс → база с фильтром по вендорам.</p>
         <a class="btn pm-exit-project-map" href="./index.html" style="display:block;text-align:center;text-decoration:none;box-sizing:border-box;margin-bottom:8px;">Полная схема →</a>
         <div style="font-size:11px;margin-bottom:6px;"><b>Выбранные продукты</b></div>
         <ul style="margin:0 0 10px;padding-left:1.1rem;font-size:11px;max-height:160px;overflow:auto;">${(ctx?.picks || [])
@@ -1940,6 +2132,11 @@
           /* ignore */
         }
         window.PROJECT_MAP_CTX = null;
+        try {
+          delete window.__ARCH_BASELINE__;
+        } catch (_) {
+          /* ignore */
+        }
       });
       document.getElementById("pmInfraAddBtn")?.addEventListener("click", () => {
         const ta = document.getElementById("pmInfraInput");
@@ -2278,7 +2475,7 @@
     }
 
     function recomputeEdgeOrthos() {
-      const edgeOrder = { zone: 0, alt: 1, direct: 2 };
+      const edgeOrder = { zone: 0, alt: 1, direct: 2, bundle: 3 };
       const sorted = [...state.edges].sort((a, b) => (edgeOrder[a.type] ?? 9) - (edgeOrder[b.type] ?? 9));
       const acc = [];
       sorted.forEach((e) => {
@@ -2549,6 +2746,12 @@
         <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
           <path d="M0,0 L9,3 L0,6 z" fill="#0f766e"></path>
         </marker>
+        <marker id="arrow-violet" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L9,3 L0,6 z" fill="#6d28d9"></path>
+        </marker>
+        <marker id="arrow-orange" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L9,3 L0,6 z" fill="#c2410c"></path>
+        </marker>
       `;
       edgesSvg.appendChild(defs);
 
@@ -2593,8 +2796,8 @@
       edgesSvg.style.zIndex = "15";
       workspace.appendChild(edgesSvg);
 
-      // edges: зона → альтернатива → прямой (снизу вверх по z-index визуально)
-      const edgeOrder = { zone: 0, alt: 1, direct: 2 };
+      // edges: зона → альтернатива → прямой → синтетика проекта (сверху)
+      const edgeOrder = { zone: 0, alt: 1, direct: 2, bundle: 3 };
       const sortedEdges = [...state.edges].sort((a, b) => (edgeOrder[a.type] ?? 9) - (edgeOrder[b.type] ?? 9));
       sortedEdges.forEach((e) => {
         if (!isEdgeVisibleInFilter(e, zset)) return;
@@ -2647,8 +2850,28 @@
 
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("d", d);
-      path.setAttribute("class", `edge-path ${e.type === "direct" ? "edge-direct" : e.type === "alt" ? "edge-alt" : "edge-zone"}`);
-      path.setAttribute("marker-end", e.type === "direct" ? "url(#arrow-dark)" : e.type === "alt" ? "url(#arrow-gray)" : "url(#arrow-green)");
+      const edgePathClass =
+        e.type === "bundle"
+          ? e.bundleIndirect
+            ? "edge-bundle-ind"
+            : "edge-bundle-log"
+          : e.type === "direct"
+            ? "edge-direct"
+            : e.type === "alt"
+              ? "edge-alt"
+              : "edge-zone";
+      const edgeMarker =
+        e.type === "bundle"
+          ? e.bundleIndirect
+            ? "url(#arrow-violet)"
+            : "url(#arrow-orange)"
+          : e.type === "direct"
+            ? "url(#arrow-dark)"
+            : e.type === "alt"
+              ? "url(#arrow-gray)"
+              : "url(#arrow-green)";
+      path.setAttribute("class", `edge-path ${edgePathClass}`);
+      path.setAttribute("marker-end", edgeMarker);
       g.appendChild(path);
 
       const hit = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -2658,7 +2881,10 @@
 
       if (e.label) {
         const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        t.setAttribute("class", "edge-label");
+        t.setAttribute(
+          "class",
+          e.type === "bundle" && !e.bundleIndirect ? "edge-label edge-label--bundle-log" : "edge-label"
+        );
         t.setAttribute("x", labelX);
         t.setAttribute("y", labelY);
         t.textContent = e.label;
