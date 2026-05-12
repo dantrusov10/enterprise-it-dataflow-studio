@@ -328,6 +328,9 @@
           meta.functionCount = data.functionCount;
         }
       })
+      .catch((err) => {
+        console.warn("kb/sheets fetch failed", sheetKey, err);
+      })
       .finally(() => {
         delete KB_SHEET_PROMISES[sheetKey];
       });
@@ -464,6 +467,14 @@
     return best;
   }
 
+  function getBundleDimFilters() {
+    if (!window.VENDOR_CATALOG_META) return { region: "all", oss: "all" };
+    return {
+      region: document.getElementById("cfgBundleRegion")?.value || "all",
+      oss: document.getElementById("cfgBundleOss")?.value || "all"
+    };
+  }
+
   async function buildBundleHtmlFromTopClasses(top, tokens) {
     try {
       const cat = await loadVendorsByClassCatalog();
@@ -471,8 +482,11 @@
         return `<div class="cfg-subh">Подобранный бандл (продукты)</div><p class="muted">Нет данных каталога (<code>kb/merged/vendors-by-class.json</code>). Запустите <code>npm run merge-landscape</code> и откройте страницу с локального/деплой-сервера (не file://).</p>`;
       }
       const rows = [];
+      const dim = getBundleDimFilters();
+      const VCM = window.VENDOR_CATALOG_META;
       for (const row of top.slice(0, 10)) {
-        const entries = vendorCatalogEntriesForRow(row, cat);
+        const rawEntries = vendorCatalogEntriesForRow(row, cat);
+        const entries = VCM ? rawEntries.filter((e) => VCM.passesDim(e, dim)) : rawEntries;
         const labelPlain = row.node.label.replace(/\n/g, " ").trim();
         const canonical = row.classRefKey || row.sheetKey || labelPlain;
         if (!entries.length) {
@@ -981,6 +995,7 @@
     setCfgLoading(true, kind === "bundle" ? "Подбор бандла…" : "Подбор классов…");
     resultsEl.innerHTML = "";
     try {
+      if (kind === "bundle") await loadVendorsByClassCatalog();
       if (isFreeMode()) await runModeFree(statusEl, resultsEl, kind);
       else await runModeZones(statusEl, resultsEl, kind);
     } catch (e) {
@@ -1073,8 +1088,19 @@
     }
 
     document.getElementById("cfgAddZoneBtn")?.addEventListener("click", () => addZoneRow("Новая зона", "Опишите требования…"));
-    document.getElementById("cfgRunClassesBtn")?.addEventListener("click", () => void runConfigurator("classes"));
-    document.getElementById("cfgRunBundleBtn")?.addEventListener("click", () => void runConfigurator("bundle"));
+    function queueCfgRun(mode) {
+      requestAnimationFrame(() => {
+        void runConfigurator(mode);
+      });
+    }
+
+    document.getElementById("cfgRunClassesBtn")?.addEventListener("click", () => queueCfgRun("classes"));
+    document.getElementById("cfgRunBundleBtn")?.addEventListener("click", () => queueCfgRun("bundle"));
+    ["cfgBundleRegion", "cfgBundleOss"].forEach((tid) => {
+      document.getElementById(tid)?.addEventListener("change", () => {
+        if (lastRunCtx?.outputKind === "bundle") queueCfgRun("bundle");
+      });
+    });
 
     document.querySelectorAll('input[name="cfgMode"]').forEach((r) => {
       r.addEventListener("change", () => {

@@ -55,6 +55,13 @@ function canon(s) {
     .trim();
 }
 
+function pickCol(row, aliases) {
+  for (const name of aliases) {
+    if (row[name] != null && String(row[name]).trim()) return String(row[name]).trim();
+  }
+  return "";
+}
+
 function classMatch(sheetName, vendorClass) {
   const a = canon(sheetName);
   const b = canon(vendorClass);
@@ -143,7 +150,9 @@ function main() {
       product: r["Продукт"] || "",
       indirect: r["Косвенные классы"] || "",
       description: r["Описание"] || "",
-      topFunctions: r["Топ функций"] || ""
+      topFunctions: r["Топ функций"] || "",
+      region: pickCol(r, ["Регион", "Region", "Страна/регион", "Регион поставки", "География"]),
+      openSource: pickCol(r, ["Open source", "Опенсорс", "OSS", "Лицензия", "Тип лицензии", "Модель лицензии"])
     });
   }
 
@@ -266,7 +275,9 @@ function main() {
         zoneCode: r["Зона (код)"] || "",
         zoneTitle: r["Зона (название)"] || "",
         description: r["Описание"] || "",
-        topFunctions: r["Топ функций"] || ""
+        topFunctions: r["Топ функций"] || "",
+        region: pickCol(r, ["Регион", "Region", "Страна/регион", "Регион поставки", "География"]),
+        openSource: pickCol(r, ["Open source", "Опенсорс", "OSS", "Лицензия", "Тип лицензии", "Модель лицензии"])
       });
     }
     byEntSheet[entSheet] = list;

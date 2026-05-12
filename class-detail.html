@@ -41,6 +41,13 @@
     th.ca-vendor-head:hover { background: #e0f2fe; }
     th.ca-vendor-head.is-on, td.ca-vendor-cell.is-on { background: #dbeafe !important; box-shadow: inset 0 0 0 1px #2563eb; }
     td.ca-score { text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .ca-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; font-size: 12px; }
+    .ca-toolbar label { display: flex; align-items: center; gap: 6px; }
+    .ca-toolbar select, .ca-toolbar input[type="search"] { font-size: 12px; padding: 5px 8px; border-radius: 6px; border: 1px solid #cbd5e1; }
+    .ca-pick-host { max-height: 240px; overflow: auto; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; margin: 10px 0; background: #fafafa; }
+    .ca-pick-row { display: flex; align-items: flex-start; gap: 8px; font-size: 11px; padding: 5px 4px; border-bottom: 1px solid #f1f5f9; line-height: 1.35; }
+    .ca-pick-row:last-child { border-bottom: none; }
+    .ca-pick-row input { margin-top: 3px; flex-shrink: 0; }
     details.kb-cascade {
       margin: 8px 0;
       border: 1px solid #e2e8f0;
@@ -95,6 +102,7 @@
     }
   </style>
   <script src="./enterprise-it-dataflow-knowledge.js"></script>
+  <script src="./vendor-catalog-meta.js"></script>
 </head>
 <body>
   <div class="wrap">
@@ -110,8 +118,10 @@
     </div>
     <div class="panel">
       <h2 id="anchor-ca">Зачаток конкурентного анализа</h2>
-      <p class="muted">Скоринг по тексту функции vs описание продукта (каталог merge-landscape). Клик по заголовку вендора подсвечивает колонку; шапка и первый столбец закреплены при горизонтальном скролле.</p>
-      <div class="ca-scroll" role="region" aria-label="Таблица конкурентного анализа">
+      <p class="muted">Скоринг по тексту функции vs описание продукта. Выберите вендоров чекбоксами (поиск и фильтры РФ / open source). Таблица строится только по отмеченным; шапка и первый столбец закреплены при скролле.</p>
+      <div id="caToolbar" class="ca-toolbar"></div>
+      <div id="caVendorPickHost" class="ca-pick-host" aria-label="Выбор вендоров для таблицы"></div>
+      <div class="ca-scroll" id="caScrollWrap" role="region" aria-label="Таблица конкурентного анализа">
         <table class="ca" id="caCompTable">
           <thead id="caTableHead"></thead>
           <tbody id="caTableBody"></tbody>
@@ -427,59 +437,207 @@
       return parts.join("");
     }
 
-    function buildCompetitiveAnalysisTable(theadEl, tbodyEl, data, vendorEntries) {
-      if (!theadEl || !tbodyEl) return;
+    function caEntryKey(e) {
+      return `${e.vendor}\u0001${e.product}`;
+    }
+
+    function funcScoreCell(f, e) {
+      const q = [f.title, f.general, f.technical, f.business].filter(Boolean).join(" ");
+      const tokens = expandQueryTokens(tokenizeQuery(q));
+      const title = `${e.vendor} ${e.product}`;
+      const body = `${e.description || ""} ${e.topFunctions || ""}`;
+      return tokens.length ? scoreSearchItem({ title, body }, tokens) + vendorPrestigeBonus(e.vendor) : vendorPrestigeBonus(e.vendor);
+    }
+
+    function initCaMatrixInteractive(theadEl, tbodyEl, toolbarEl, pickHostEl, data, vendorEntries) {
+      const VCM = window.VENDOR_CATALOG_META;
+      if (!theadEl || !tbodyEl || !toolbarEl || !pickHostEl) return;
       const funcRows = listFromValue(data?.allFunctions?.length ? data.allFunctions : data?.topFunctions).filter(
         (f) => !String(f.type || "").toLowerCase().includes("категор")
       );
       const sample = funcRows.slice(0, 40);
       if (!sample.length) {
+        toolbarEl.innerHTML = "";
+        pickHostEl.innerHTML = "";
         theadEl.innerHTML = "";
         tbodyEl.innerHTML = `<tr><td colspan="99" class="muted">Нет строк функций для таблицы.</td></tr>`;
         return;
       }
-      const topRanked = rankTopVendorsForClass(vendorEntries, data, 10);
-      if (!topRanked.length) {
-        theadEl.innerHTML = `<tr><th>Функция / критерий</th><th>Наш статус</th><th colspan="99">Нет каталога вендоров для класса</th></tr>`;
+      if (!VCM) {
+        toolbarEl.innerHTML = `<p class="muted">Подключите vendor-catalog-meta.js</p>`;
+        return;
+      }
+      const baseList = (vendorEntries || []).map((e) => {
+        let total = 0;
+        for (const f of sample) total += funcScoreCell(f, e);
+        return { e, total, key: caEntryKey(e) };
+      });
+      baseList.sort((a, b) => b.total - a.total);
+      if (!baseList.length) {
+        toolbarEl.innerHTML = "";
+        pickHostEl.innerHTML = "";
+        theadEl.innerHTML = `<tr><th>Функция / критерий</th><th>Наш статус</th><th colspan="99">Нет каталога вендоров</th></tr>`;
         tbodyEl.innerHTML = sample
-          .map((f) => `<tr><td>${esc(f.title)}</td><td>—</td><td class="muted" colspan="99">Сгенерируйте kb/merged/vendors-by-class.json</td></tr>`)
+          .map((f) => `<tr><td>${esc(f.title)}</td><td>—</td><td class="muted" colspan="99">kb/merged/vendors-by-class.json</td></tr>`)
           .join("");
         return;
       }
-      const vendors = topRanked.map((x) => x.e);
-      const headCells = vendors
-        .map((e, vix) => {
-          const short = `${e.vendor} — ${e.product}`.slice(0, 72) + (String(`${e.vendor} — ${e.product}`).length > 72 ? "…" : "");
-          return `<th scope="col" class="ca-vendor-head" data-vix="${vix}" title="${esc(e.vendor + " — " + e.product)}">${esc(short)}</th>`;
-        })
-        .join("");
-      theadEl.innerHTML = `<tr><th scope="col">Функция / критерий</th><th scope="col">Наш статус</th>${headCells}<th scope="col">Комментарий / ссылка</th></tr>`;
-      tbodyEl.innerHTML = sample
-        .map((f) => {
-          const cells = vendors
-            .map((e, vix) => {
-              const q = [f.title, f.general, f.technical, f.business].filter(Boolean).join(" ");
-              const tokens = expandQueryTokens(tokenizeQuery(q));
-              const title = `${e.vendor} ${e.product}`;
-              const body = `${e.description || ""} ${e.topFunctions || ""}`;
-              const sc = tokens.length ? scoreSearchItem({ title, body }, tokens) + vendorPrestigeBonus(e.vendor) : vendorPrestigeBonus(e.vendor);
-              const show = sc > 0 ? String(Math.round(sc)) : "·";
-              return `<td class="ca-score ca-vendor-cell" data-vix="${vix}">${esc(show)}</td>`;
-            })
-            .join("");
-          return `<tr><td>${esc(f.title)}</td><td>—</td>${cells}<td class="muted">Клик по заголовку вендора подсвечивает колонку</td></tr>`;
-        })
-        .join("");
+
+      const state = { checked: new Set(baseList.map((x) => x.key)) };
+
+      function dimFromUi() {
+        return {
+          region: document.getElementById("caRegionFilter")?.value || "all",
+          oss: document.getElementById("caOssFilter")?.value || "all"
+        };
+      }
+
+      function filteredBase() {
+        const dim = dimFromUi();
+        const q = (document.getElementById("caVendorSearch")?.value || "").trim().toLowerCase();
+        return baseList.filter(({ e, key }) => {
+          if (!VCM.passesDim(e, dim)) return false;
+          if (!q) return true;
+          return `${e.vendor} ${e.product}`.toLowerCase().includes(q);
+        });
+      }
+
+      function renderToolbar() {
+        toolbarEl.innerHTML = `
+          <label>Регион
+            <select id="caRegionFilter">
+              <option value="all">Все</option>
+              <option value="rf">РФ</option>
+              <option value="non_rf">Не РФ</option>
+              <option value="multi">Мультирегион</option>
+            </select>
+          </label>
+          <label>Open source
+            <select id="caOssFilter">
+              <option value="all">Все</option>
+              <option value="yes">Open source</option>
+              <option value="no">Не open source</option>
+              <option value="multi">Смешанно</option>
+            </select>
+          </label>
+          <label style="flex:1;min-width:160px;">Поиск <input type="search" id="caVendorSearch" placeholder="вендор или продукт…" style="width:100%;max-width:280px;" /></label>
+          <button type="button" class="btn" id="caPickSelectVisible">Выбрать видимых</button>
+          <button type="button" class="btn" id="caPickClearVisible">Сбросить видимых</button>
+          <span class="muted" id="caPickCount"></span>
+        `;
+      }
+
+      function renderPicks() {
+        const list = filteredBase();
+        const cnt = document.getElementById("caPickCount");
+        if (cnt) cnt.textContent = `В списке: ${list.length} · в таблице: ${list.filter((x) => state.checked.has(x.key)).length}`;
+        pickHostEl.innerHTML = list.length
+          ? list
+              .map(({ e, total, key }) => {
+                const r = VCM.inferRegion(e);
+                const o = VCM.inferOss(e);
+                const dk = encodeURIComponent(key);
+                const on = state.checked.has(key) ? " checked" : "";
+                return `<label class="ca-pick-row"><input type="checkbox" data-ca-k="${dk}"${on} /><span><b>${esc(e.vendor)}</b> — ${esc(e.product)} <span class="muted">Σ ${Math.round(total)}</span> <span class="pill">${esc(r)}</span> <span class="pill">${esc(o)}</span></span></label>`;
+              })
+              .join("")
+          : '<p class="muted">Никто не подходит под фильтры / поиск.</p>';
+      }
+
+      function rebuildTable() {
+        const list = filteredBase().filter((x) => state.checked.has(x.key));
+        if (!list.length) {
+          theadEl.innerHTML = `<tr><th scope="col">Функция / критерий</th><th scope="col">Наш статус</th><th colspan="99">Отметьте вендоров выше</th></tr>`;
+          tbodyEl.innerHTML = sample.map((f) => `<tr><td>${esc(f.title)}</td><td>—</td><td class="muted" colspan="99">—</td></tr>`).join("");
+          return;
+        }
+        const vendors = list.map((x) => x.e);
+        const headCells = vendors
+          .map((e, vix) => {
+            const line = `${e.vendor} — ${e.product}`;
+            const short = line.length > 56 ? `${line.slice(0, 54)}…` : line;
+            return `<th scope="col" class="ca-vendor-head" data-vix="${vix}" title="${esc(line)}">${esc(short)}</th>`;
+          })
+          .join("");
+        theadEl.innerHTML = `<tr><th scope="col">Функция / критерий</th><th scope="col">Наш статус</th>${headCells}<th scope="col">Комментарий / ссылка</th></tr>`;
+        tbodyEl.innerHTML = sample
+          .map((f) => {
+            const cells = vendors
+              .map((e, vix) => {
+                const sc = funcScoreCell(f, e);
+                const show = sc > 0 ? String(Math.round(sc)) : "·";
+                return `<td class="ca-score ca-vendor-cell" data-vix="${vix}">${esc(show)}</td>`;
+              })
+              .join("");
+            return `<tr><td>${esc(f.title)}</td><td>—</td>${cells}<td class="muted">Клик по заголовку — подсветка колонки</td></tr>`;
+          })
+          .join("");
+      }
+
+      renderToolbar();
+      renderPicks();
+      rebuildTable();
+
+      if (!toolbarEl.dataset.caUiBound) {
+        toolbarEl.dataset.caUiBound = "1";
+        toolbarEl.addEventListener("change", (ev) => {
+          if (ev.target.id === "caRegionFilter" || ev.target.id === "caOssFilter") {
+            renderPicks();
+            rebuildTable();
+          }
+        });
+        let tmr;
+        toolbarEl.addEventListener("input", (ev) => {
+          if (ev.target.id !== "caVendorSearch") return;
+          clearTimeout(tmr);
+          tmr = setTimeout(() => {
+            renderPicks();
+            rebuildTable();
+          }, 140);
+        });
+        toolbarEl.addEventListener("click", (ev) => {
+          const list = filteredBase();
+          if (ev.target.id === "caPickSelectVisible") {
+            list.forEach((x) => state.checked.add(x.key));
+            renderPicks();
+            rebuildTable();
+          }
+          if (ev.target.id === "caPickClearVisible") {
+            list.forEach((x) => state.checked.delete(x.key));
+            renderPicks();
+            rebuildTable();
+          }
+        });
+      }
+
+      if (!pickHostEl.dataset.caPickBound) {
+        pickHostEl.dataset.caPickBound = "1";
+        pickHostEl.addEventListener("change", (ev) => {
+          const inp = ev.target.closest("input[type=checkbox][data-ca-k]");
+          if (!inp) return;
+          const k = decodeURIComponent(inp.getAttribute("data-ca-k"));
+          if (inp.checked) state.checked.add(k);
+          else state.checked.delete(k);
+          const cnt = document.getElementById("caPickCount");
+          if (cnt) {
+            const list = filteredBase();
+            cnt.textContent = `В списке: ${list.length} · в таблице: ${list.filter((x) => state.checked.has(x.key)).length}`;
+          }
+          rebuildTable();
+        });
+      }
     }
 
-    function wireCaColumnHighlight(tableEl) {
-      if (!tableEl) return;
-      tableEl.addEventListener("click", (ev) => {
+    function wireCaScrollHighlightOnce() {
+      const wrap = document.getElementById("caScrollWrap");
+      if (!wrap || wrap.dataset.caHl === "1") return;
+      wrap.dataset.caHl = "1";
+      wrap.addEventListener("click", (ev) => {
         const th = ev.target.closest("th.ca-vendor-head");
-        if (!th || !tableEl.contains(th)) return;
+        if (!th || !wrap.contains(th)) return;
         const vix = th.dataset.vix;
         const turnOn = !th.classList.contains("is-on");
-        tableEl.querySelectorAll(".ca-vendor-head, .ca-vendor-cell").forEach((el) => {
+        wrap.querySelectorAll(".ca-vendor-head, .ca-vendor-cell").forEach((el) => {
           if (el.dataset.vix === vix) el.classList.toggle("is-on", turnOn);
         });
       });
@@ -545,8 +703,10 @@
 
         const thead = document.getElementById("caTableHead");
         const tbody = document.getElementById("caTableBody");
-        buildCompetitiveAnalysisTable(thead, tbody, data, vendorEntries);
-        wireCaColumnHighlight(document.getElementById("caCompTable"));
+        const tbBar = document.getElementById("caToolbar");
+        const pickHost = document.getElementById("caVendorPickHost");
+        initCaMatrixInteractive(thead, tbody, tbBar, pickHost, data, vendorEntries);
+        wireCaScrollHighlightOnce();
       } catch (err) {
         console.error(err);
         const fb = document.getElementById("functionsBlock");

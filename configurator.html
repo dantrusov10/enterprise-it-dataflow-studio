@@ -33,7 +33,12 @@
     .btn-ghost:hover { background: #f1f5f9; color: #0f172a; }
     .cfg-zone-row-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
     .cfg-zone-title { flex: 1; min-width: 140px; max-width: 320px; }
-    .cfg-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
+    .cfg-filter-bar {
+      display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 0 0 12px;
+      padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fafafa; font-size: 12px;
+    }
+    .cfg-filter-bar label { display: flex; align-items: center; gap: 6px; color: #334155; }
+    .cfg-filter-bar select { font-size: 12px; padding: 5px 8px; border-radius: 6px; border: 1px solid #cbd5e1; }
     #cfgChips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
     .cfg-chip {
       font-size: 11px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
@@ -98,7 +103,8 @@
     @keyframes cfg-spin { to { transform: rotate(360deg); } }
   </style>
   <script src="./enterprise-it-dataflow-knowledge.js?v=kb20260208"></script>
-  <script src="./configurator-page.js?v=5"></script>
+  <script src="./vendor-catalog-meta.js"></script>
+  <script src="./configurator-page.js?v=6"></script>
 </head>
 <body>
   <div class="page">
@@ -144,6 +150,25 @@
       <h2>Быстрые темы</h2>
       <p class="muted" style="margin:0 0 8px;">Вставка в активное поле (первая зона или абзац в зависимости от режима).</p>
       <div id="cfgChips"><span class="muted" style="font-size:11px;margin-right:6px;">Темы:</span></div>
+      <div class="cfg-filter-bar" id="cfgCatalogFilterBar">
+        <span class="muted" style="font-weight:600;">Каталог вендоров (бандл):</span>
+        <label>Регион
+          <select id="cfgBundleRegion">
+            <option value="all">Все</option>
+            <option value="rf">РФ</option>
+            <option value="non_rf">Не РФ</option>
+            <option value="multi">Мультирегион</option>
+          </select>
+        </label>
+        <label>Open source
+          <select id="cfgBundleOss">
+            <option value="all">Все</option>
+            <option value="yes">Да</option>
+            <option value="no">Нет</option>
+            <option value="multi">Смешанно</option>
+          </select>
+        </label>
+      </div>
       <div class="cfg-toolbar">
         <button type="button" class="btn btn-primary" id="cfgRunClassesBtn">Подобрать классы</button>
         <button type="button" class="btn" id="cfgRunBundleBtn">Подобрать бандл</button>
@@ -172,7 +197,7 @@
       <div id="cfgVendorDetail"></div>
     </section>
 
-    <span class="badge">Конфигуратор v4 · лоадер + бандл</span>
+    <span class="badge">Конфигуратор v6 · фильтры бандла · фикс повторного подбора</span>
   </div>
 </body>
 </html>

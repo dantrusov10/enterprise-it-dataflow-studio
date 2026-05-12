@@ -66,6 +66,15 @@ try {
 }
 console.log("configurator-page.js: syntax OK");
 
+const vcmPath = path.join(root, "vendor-catalog-meta.js");
+const vcmSrc = fs.readFileSync(vcmPath, "utf8");
+try {
+  new Function(vcmSrc);
+} catch (e) {
+  throw new Error(`vendor-catalog-meta.js syntax: ${e.message}`);
+}
+console.log("vendor-catalog-meta.js: syntax OK");
+
 if (!indexHtml.includes("knowledge-dock")) throw new Error("index.html missing knowledge-dock");
 if (!indexHtml.includes("visibleZoneFilterSet")) throw new Error("index.html missing view filters");
 if (!indexHtml.includes("configurator.html")) throw new Error("index.html missing link to configurator page");
@@ -76,5 +85,6 @@ const cfgHtml = fs.readFileSync(cfgHtmlPath, "utf8");
 if (!cfgHtml.includes('name="cfgMode"')) throw new Error("configurator.html missing mode radios");
 if (!cfgHtml.includes("cfgVendorPanel")) throw new Error("configurator.html missing vendor panel");
 if (!cfgHtml.includes("cfgRunBundleBtn")) throw new Error("configurator.html missing bundle button");
+if (!cfgHtml.includes("cfgBundleRegion")) throw new Error("configurator.html missing bundle region filter");
 
 console.log("smoke: all checks passed");
