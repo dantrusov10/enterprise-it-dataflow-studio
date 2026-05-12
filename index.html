@@ -33,7 +33,7 @@
     /* Полная высота: иначе при absolute-вьюпорте родитель схлопывается в 0 и паутина не видна */
     .workspace-wrap { position: absolute; inset: 0; overflow: hidden; }
     #workspace {
-      position: relative; width: 2840px; height: 1840px; margin: 0; background: #f8fafc;
+      position: relative; width: 3280px; height: 2000px; margin: 0; background: #f8fafc;
       background-image:
         linear-gradient(to right, rgba(15,23,42,0.04) 1px, transparent 1px),
         linear-gradient(to bottom, rgba(15,23,42,0.04) 1px, transparent 1px);
@@ -75,12 +75,29 @@
     }
     .selected { box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35); }
     .muted { opacity: 0.18; filter: grayscale(35%); }
-    .edge-path { fill: none; stroke-width: 2.2; pointer-events: stroke; cursor: pointer; }
+    .edge-path { fill: none; pointer-events: stroke; cursor: pointer; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 2.75; }
     .edge-hit { fill: none; stroke: transparent; stroke-width: 16; pointer-events: stroke; cursor: pointer; }
-    .edge-label { font-size: 11px; fill: #7e22ce; user-select: none; pointer-events: none; }
-    .edge-direct { stroke: #111827; }
-    .edge-alt { stroke: #475569; stroke-dasharray: 4 4; }
-    .edge-zone { stroke: #16a34a; }
+    .edge-label { font-size: 11px; fill: #5b21b6; user-select: none; pointer-events: none; }
+    .edge-direct { stroke: #0f172a; stroke-width: 2.55; }
+    .edge-alt { stroke: #64748b; stroke-width: 2.15; stroke-dasharray: 7 6; opacity: 0.94; }
+    .edge-zone { stroke: #0f766e; stroke-width: 2.45; stroke-dasharray: 2 10; opacity: 0.9; }
+    .zone.map-dimmed {
+      opacity: 0.16;
+      filter: grayscale(0.95) blur(0.85px);
+      transition: opacity 0.2s ease, filter 0.2s ease;
+    }
+    .node.map-dimmed {
+      opacity: 0.2;
+      filter: grayscale(0.9) blur(0.5px);
+      transition: opacity 0.2s ease, filter 0.2s ease;
+    }
+    .node.hub.map-dimmed { opacity: 1; filter: none; }
+    #edges .edge-group--mapdim .edge-path { opacity: 0.22; filter: grayscale(0.5); }
+    #edges .edge-group--mapdim .edge-label { opacity: 0.28; }
+    .mm-zone.mm-dim { opacity: 0.22; filter: grayscale(1); }
+    .kb-search-hit { background: #fef08a; color: #0f172a; padding: 0 2px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(234, 179, 8, 0.45); }
+    .kb-hit-nav { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #475569; flex-wrap: wrap; max-width: 200px; justify-content: flex-end; }
+    .kb-search-hit--current { outline: 2px solid #2563eb; outline-offset: 1px; border-radius: 2px; }
     .edge-active { stroke: #1d4ed8 !important; stroke-width: 4 !important; filter: drop-shadow(0 0 3px rgba(29, 78, 216, 0.45)); }
     .edge-path.edge-path--focus { opacity: 1; stroke-width: 3.1; filter: drop-shadow(0 0 2px rgba(15, 23, 42, 0.2)); }
     .edge-path.edge-dim { opacity: 0.07; stroke-width: 1.35; filter: none; }
@@ -101,6 +118,15 @@
     .panel-section { margin-top: 10px; border-top: 1px solid #e2e8f0; padding-top: 8px; }
     .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; margin-right: 4px; margin-bottom: 4px; background: #e2e8f0; color: #0f172a; }
     .result-item { border: 1px solid #cbd5e1; border-radius: 8px; padding: 6px; margin: 6px 0; cursor: pointer; background: #fff; }
+    .kb-card { font-size: 13px; line-height: 1.45; }
+    .kb-card > h4 { margin: 0 0 8px 0; font-size: 15px; }
+    .kb-typebar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 4px; }
+    .kb-sec { margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e8f0; }
+    .kb-sec > .kb-sec-kicker { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; margin-bottom: 6px; }
+    .kb-card--edge--direct { border-left: 3px solid #1e40af; padding-left: 10px; margin-left: -2px; }
+    .kb-card--edge--zone { border-left: 3px solid #0f766e; padding-left: 10px; margin-left: -2px; }
+    .kb-card--edge--alt { border-left: 3px solid #64748b; padding-left: 10px; margin-left: -2px; }
+    .kb-card--hub { border-left: 3px solid #0f172a; padding-left: 10px; margin-left: -2px; }
     .result-item:hover { background: #f8fafc; }
     .muted-text { color: #64748b; font-size: 11px; }
     .detail-prompt {
@@ -229,7 +255,7 @@
     .knowledge-dock.open { transform: translateX(0); }
     .app.knowledge-dock-open .workspace-wrap { margin-right: calc(var(--kb-dock-w) + 28px); transition: margin-right 0.22s ease; }
     .app.knowledge-dock-open .fab-knowledge { right: calc(var(--kb-dock-w) + 40px); transition: right 0.22s ease; }
-    .knowledge-dock-head { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #e2e8f0; }
+    .knowledge-dock-head { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border-bottom: 1px solid #e2e8f0; }
     .knowledge-dock-head h4 { margin: 0; font-size: 14px; }
     .knowledge-dock-body { flex: 1; overflow: auto; padding: 12px; min-height: 0; }
 
@@ -268,27 +294,19 @@
           <label class="view-check"><input type="checkbox" id="viewEdgesDirect" checked /> Прямые связи классов</label>
           <label class="view-check"><input type="checkbox" id="viewEdgesAlt" checked /> Косвенные / альтернативные</label>
           <label class="view-check"><input type="checkbox" id="viewEdgesZone" checked /> Связи зон</label>
+          <div class="hint" style="font-size:10px;margin-top:6px;line-height:1.35;">Линии: <b style="color:#0f172a">━</b> прямой класс · <b style="color:#64748b">╍╍</b> косвенный / оговорка · <b style="color:#0f766e"> ╍ </b> поток между зонами (агрегат).</div>
           <div class="view-zone-head">
             <span>Зоны</span>
             <span>
               <button type="button" class="linkish" id="zonesAllBtn" title="Показать все зоны (снять фильтр)">все</button>
             </span>
           </div>
-          <div id="viewZoneGrid" class="view-zone-grid" role="group" aria-label="Фильтр зон по галочкам" title="Ни одна галочка или все отмечены = без фильтра (все зоны). Иначе — только отмеченные."></div>
-          <div class="hint" style="font-size:10px;margin-top:4px;">Фильтр зон скрывает рамку зоны, классы в ней и связи с невидимыми концами.</div>
+          <div id="viewZoneGrid" class="view-zone-grid" role="group" aria-label="Фильтр зон по галочкам" title="Снятая галочка: зона остаётся на карте в блюре, связи к ней приглушены. Все или ни одной = без фильтра."></div>
+          <div class="hint" style="font-size:10px;margin-top:4px;">Снятые зоны не исчезают — серые и размытые; выбранные остаются читаемыми.</div>
         </div>
-        <button class="btn" id="editToggle">Редактировать: выкл</button>
-        <button class="btn" id="addZoneBtn">+ Зона</button>
-        <button class="btn" id="addClassBtn">+ Класс</button>
-        <button class="btn" id="addEdgeBtn">+ Связь</button>
-        <button class="btn" id="fitBtn">Подогнать в окно</button>
-        <button class="btn" id="resetBtn">Сброс вида</button>
-        <button class="btn" id="layoutBtn">Авто-раскладка</button>
-        <button class="btn" id="untangleBtn">Упростить связи</button>
-        <button class="btn" id="minCrossBtn">Минимум пересечений</button>
         <button class="btn" id="exportBtn">Экспорт JSON</button>
         <button class="btn" id="openKnowledgeBtn">База знаний</button>
-        <span class="badge">v6 view modes + dock + lazy KB</span>
+        <span class="badge">v7 read-only · орто-связи · CMDB-зона</span>
       </div>
     </aside>
     <div class="workspace-wrap">
@@ -305,14 +323,15 @@
       </div>
       <div class="minimap-wrap" id="minimapWrap">
         <div class="minimap-title">Мини-карта</div>
-        <svg id="minimapSvg" width="196" height="120" viewBox="0 0 2840 1840" preserveAspectRatio="xMidYMid meet"></svg>
+        <svg id="minimapSvg" width="196" height="120" viewBox="0 0 3280 2000" preserveAspectRatio="xMidYMid meet"></svg>
       </div>
       <div class="knowledge-dock" id="infoPanel" role="complementary" aria-label="База знаний">
         <div class="knowledge-dock-head panel-head">
           <h4>База знаний</h4>
+          <div id="kbSearchHitNav" class="kb-hit-nav" aria-live="polite"></div>
           <button type="button" class="icon-btn" id="closeKnowledgeBtn" aria-label="Закрыть панель">✕</button>
         </div>
-        <div class="knowledge-dock-body">
+        <div class="knowledge-dock-body" id="knowledgeDockBody">
           <div id="entityCard" class="panel-section" style="border-top:none;padding-top:0;"></div>
           <div id="vendorCard" class="panel-section"></div>
         </div>
@@ -336,18 +355,11 @@
     const toggleSidebarBtn = document.getElementById("toggleSidebarBtn");
     const openKnowledgeBtn = document.getElementById("openKnowledgeBtn");
     const openKnowledgeFab = document.getElementById("openKnowledgeFab");
-    const editToggle = document.getElementById("editToggle");
-    const addZoneBtn = document.getElementById("addZoneBtn");
-    const addClassBtn = document.getElementById("addClassBtn");
-    const addEdgeBtn = document.getElementById("addEdgeBtn");
-    const fitBtn = document.getElementById("fitBtn");
-    const resetBtn = document.getElementById("resetBtn");
-    const layoutBtn = document.getElementById("layoutBtn");
-    const untangleBtn = document.getElementById("untangleBtn");
-    const minCrossBtn = document.getElementById("minCrossBtn");
     const exportBtn = document.getElementById("exportBtn");
     const infoPanel = document.getElementById("infoPanel");
     const closeKnowledgeBtn = document.getElementById("closeKnowledgeBtn");
+    const kbSearchHitNav = document.getElementById("kbSearchHitNav");
+    const knowledgeDockBody = document.getElementById("knowledgeDockBody");
     const sidebarSearchInput = document.getElementById("sidebarSearchInput");
     const sidebarSearchResults = document.getElementById("sidebarSearchResults");
     const entityCard = document.getElementById("entityCard");
@@ -356,15 +368,14 @@
     const detailYes = document.getElementById("detailYes");
     const detailNo = document.getElementById("detailNo");
 
-    let editMode = false;
     let scale = 1;
     let selectedEdgeId = null;
     let selectedNodeId = null;
     let selectedZoneId = null;
-    let createEdgeMode = false;
-    let edgeFrom = null;
     let sidebarCollapsed = false;
     let knowledgeOpen = false;
+    let kbSearchHitMarks = [];
+    let kbSearchHitIndex = 0;
     /** После «Нет» скрываем запрос, пока не сменится выделение или не кликнут пустое место */
     let detailDismissedToken = "";
     /** После «Да» / открытия базы из меню — не показывать плашку снова при том же выделении */
@@ -730,6 +741,10 @@
 
     function classRefByNode(node) {
       if (!node) return null;
+      if (node.hub && node.id === "n-hub") {
+        const ref = KB.classReference?.["CMDB / Asset Data Hub"];
+        if (ref) return { key: "CMDB / Golden Record", data: ref };
+      }
       // Слой Discovery+Inventory на схеме = зона z-disc в справочнике (отдельного класса «Discovery» в CSV нет)
       if (node.id === "n-d1") {
         const z = zoneKbById("z-disc");
@@ -805,6 +820,11 @@
       appRoot.classList.add("knowledge-dock-open");
       infoPanel.classList.add("open");
       await renderEntityCard();
+      if (options.highlightQuery && String(options.highlightQuery).trim()) {
+        finalizeKbSearchHighlight(String(options.highlightQuery).trim());
+      } else {
+        clearKbSearchHighlightUi();
+      }
       updateDetailPrompt();
       if (focusSearch && sidebarSearchInput) sidebarSearchInput.focus();
     }
@@ -813,6 +833,7 @@
       knowledgeOpen = false;
       appRoot.classList.remove("knowledge-dock-open");
       infoPanel.classList.remove("open");
+      clearKbSearchHighlightUi();
       updateDetailPrompt();
     }
 
@@ -895,6 +916,9 @@
     }
 
     async function renderEntityCard() {
+      kbSearchHitMarks = [];
+      kbSearchHitIndex = 0;
+      if (kbSearchHitNav) kbSearchHitNav.innerHTML = "";
       if (selectedNodeId) {
         const node = nodeById(selectedNodeId);
         if (!node) return;
@@ -905,15 +929,15 @@
         const fnHtml = renderClassFunctionsHtml(sheet?.data);
         const detailHref = classDetailPageUrl(node, sheet);
         entityCard.innerHTML = `
-          <h4>Класс: ${node.label.split(/\n/).map((l) => esc(l)).join("<br>")}</h4>
-          <div style="margin:8px 0;display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
-            <a class="btn" href="${esc(detailHref)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-block;">Все функции + зачаток конкурентного анализа →</a>
-            ${sheet?.data?.functionCount != null ? `<span class="muted-text">в листе: ${sheet.data.functionCount} записей · здесь топ по приоритету</span>` : ""}
-          </div>
-          ${renderClassRefBlock(ref)}
-          <div class="panel-section">
-            <b>Функции и категории (топ по приоритету, лист Excel):</b>
-            ${fnHtml}
+          <div class="kb-card kb-card--class${node.hub ? " kb-card--hub" : ""}">
+            <h4>${node.hub ? "Класс (центральный узел)" : "Класс"}: ${node.label.split(/\n/).map((l) => esc(l)).join("<br>")}</h4>
+            <div class="kb-typebar">
+              ${node.hub ? `<span class="pill" style="background:#0f172a;color:#fff;border-color:#0f172a;">Шаблон 5 · Golden Record / SoT</span>` : `<span class="pill">Шаблон 5 · класс на схеме</span>`}
+              <a class="btn" href="${esc(detailHref)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-block;">Все функции + зачаток конкурентного анализа →</a>
+              ${sheet?.data?.functionCount != null ? `<span class="muted-text">в листе: ${sheet.data.functionCount} записей · здесь топ по приоритету</span>` : ""}
+            </div>
+            <div class="kb-sec"><div class="kb-sec-kicker">Справочник (единый формат для классов)</div>${renderClassRefBlock(ref)}</div>
+            <div class="kb-sec"><div class="kb-sec-kicker">Функции и категории (лист Excel)</div>${fnHtml}</div>
           </div>
         `;
         return;
@@ -924,20 +948,20 @@
         const kb = zoneKbById(selectedZoneId);
         if (!zone) return;
         entityCard.innerHTML = `
-          <h4>Зона: ${esc(zone.title)}</h4>
-          ${(() => {
-            if (!kb) return `<div class="kb-ref-block muted-text"><span class="kb-src-badge ref">Справочник</span>Нет блока зоны в KB.</div>`;
-            const r = [];
-            if (String(kb.what || "").trim()) r.push(`<div style="margin-top:4px;line-height:1.45;"><b>Что это:</b> ${esc(kb.what)}</div>`);
-            if (String(kb.techGoal || "").trim()) r.push(`<div style="margin-top:4px;line-height:1.45;"><b>Тех. цель:</b> ${esc(kb.techGoal)}</div>`);
-            if (String(kb.businessGoal || "").trim()) r.push(`<div style="margin-top:4px;line-height:1.45;"><b>Бизнес-цель:</b> ${esc(kb.businessGoal)}</div>`);
-            if (String(kb.howWorks || "").trim()) r.push(`<div style="margin-top:4px;line-height:1.45;"><b>Как работает:</b> ${esc(kb.howWorks)}</div>`);
-            if (!r.length) return `<div class="kb-ref-block muted-text"><span class="kb-src-badge ref">Справочник</span>Поля зоны в файле пусты.</div>`;
-            return `<div class="kb-ref-block"><span class="kb-src-badge ref">Справочник зон</span>${r.join("")}</div>`;
-          })()}
-          <div class="panel-section">
-            <b>Классы в зоне:</b>
-            <div>${state.nodes.filter(n => n.zoneId === zone.id).map(n => `<span class="pill">${esc(n.label.replace(/\n/g, " "))}</span>`).join("") || '<span class="muted-text">нет</span>'}</div>
+          <div class="kb-card kb-card--zone">
+            <h4>Зона: ${esc(zone.title)}</h4>
+            <div class="kb-typebar"><span class="pill">Шаблон 1 · зона архитектуры</span><span class="muted-text">${esc(zone.id)}</span></div>
+            ${(() => {
+              if (!kb) return `<div class="kb-sec"><div class="kb-sec-kicker">Справочник зоны</div><div class="kb-ref-block muted-text"><span class="kb-src-badge ref">Справочник</span>Нет блока зоны в KB — добавьте строку в CSV и пересоберите базу.</div></div>`;
+              const r = [];
+              if (String(kb.what || "").trim()) r.push(`<div style="margin-top:4px;line-height:1.45;"><b>Что это:</b> ${esc(kb.what)}</div>`);
+              if (String(kb.techGoal || "").trim()) r.push(`<div style="margin-top:4px;line-height:1.45;"><b>Тех. цель:</b> ${esc(kb.techGoal)}</div>`);
+              if (String(kb.businessGoal || "").trim()) r.push(`<div style="margin-top:4px;line-height:1.45;"><b>Бизнес-цель:</b> ${esc(kb.businessGoal)}</div>`);
+              if (String(kb.howWorks || "").trim()) r.push(`<div style="margin-top:4px;line-height:1.45;"><b>Как работает:</b> ${esc(kb.howWorks)}</div>`);
+              if (!r.length) return `<div class="kb-sec"><div class="kb-sec-kicker">Справочник зоны</div><div class="kb-ref-block muted-text"><span class="kb-src-badge ref">Справочник</span>Поля зоны в файле пусты.</div></div>`;
+              return `<div class="kb-sec"><div class="kb-sec-kicker">Справочник зоны (единый формат для всех зон)</div><div class="kb-ref-block"><span class="kb-src-badge ref">Справочник зон</span>${r.join("")}</div></div>`;
+            })()}
+            <div class="kb-sec"><div class="kb-sec-kicker">Классы в этой зоне</div><div>${state.nodes.filter(n => n.zoneId === zone.id).map(n => `<span class="pill">${esc(n.label.replace(/\n/g, " "))}</span>`).join("") || '<span class="muted-text">нет</span>'}</div></div>
           </div>
         `;
         return;
@@ -959,14 +983,24 @@
           .filter(Boolean)
           .map((p) => `<p style="margin:8px 0;line-height:1.45;">${p.replace(/\n/g, "<br>")}</p>`)
           .join("");
+        const typeBadge =
+          e.type === "zone"
+            ? `<span class="pill" style="background:#ccfbf1;border-color:#5eead4;color:#0f766e;">Поток зон</span>`
+            : e.type === "alt"
+              ? `<span class="pill" style="background:#f1f5f9;border-color:#94a3b8;color:#334155;">Косвенная / оговорка</span>`
+              : `<span class="pill" style="background:#eff6ff;border-color:#93c5fd;color:#1e40af;">Прямой обмен классов</span>`;
+        const edgeCardMod = e.type === "zone" ? "kb-card--edge--zone" : e.type === "alt" ? "kb-card--edge--alt" : "kb-card--edge--direct";
+        const edgeTplNum = e.type === "zone" ? "Шаблон 3 · зональный поток" : e.type === "alt" ? "Шаблон 4 · косвенная связь" : "Шаблон 2 / 6 · прямая классовая связь";
         entityCard.innerHTML = `
-          <h4>Поток данных: ${from} → ${to}</h4>
-          <div class="muted-text">Связь <b>${esc(e.id)}</b> · тип: <b>${esc(e.type)}</b>${e.label ? ` · подпись на схеме: «${esc(e.label)}»` : ""}</div>
-          <div class="panel-section"><span class="kb-src-badge ref">Классы / справочник</span><b style="display:block;margin-top:6px;">Смысл потока</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.what)}</div></div>
-          <div class="panel-section"><span class="kb-src-badge ref">Классы / справочник</span><b style="display:block;margin-top:6px;">Зачем эта связь</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.why)}</div></div>
-          <div class="panel-section"><span class="kb-src-badge sheet">Лист Excel + справочник</span><b style="display:block;margin-top:6px;">Источник</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.atSource)}</div></div>
-          <div class="panel-section"><span class="kb-src-badge sheet">Лист Excel + справочник</span><b style="display:block;margin-top:6px;">Приёмник</b><div style="margin-top:6px;line-height:1.45;">${esc(sec.atDest)}</div></div>
-          <div class="panel-section kb-edge-corpus"><span class="kb-src-badge" style="background:#ffedd5;color:#9a3412;">Исследование / corpus</span><b style="display:block;margin-top:6px;">Выдержки из базы</b>${researchBlocks || `<p class="muted-text">${esc(sec.research)}</p>`}</div>
+          <div class="kb-card kb-card--edge ${edgeCardMod}">
+            <h4>Поток данных: ${from} → ${to}</h4>
+            <div class="kb-typebar">${typeBadge}<span class="pill">${edgeTplNum}</span><span class="muted-text">${esc(e.id)}${e.label ? ` · «${esc(e.label)}»` : ""}</span></div>
+            <div class="kb-sec"><div class="kb-sec-kicker">Смысл потока</div><div style="line-height:1.45;">${esc(sec.what)}</div></div>
+            <div class="kb-sec"><div class="kb-sec-kicker">Зачем эта связь</div><div style="line-height:1.45;">${esc(sec.why)}</div></div>
+            <div class="kb-sec"><div class="kb-sec-kicker">Источник (лист + справочник)</div><div style="line-height:1.45;">${esc(sec.atSource)}</div></div>
+            <div class="kb-sec"><div class="kb-sec-kicker">Приёмник (лист + справочник)</div><div style="line-height:1.45;">${esc(sec.atDest)}</div></div>
+            <div class="kb-sec kb-edge-corpus"><div class="kb-sec-kicker">Исследование / corpus</div>${researchBlocks || `<p class="muted-text">${esc(sec.research)}</p>`}</div>
+          </div>
         `;
         return;
       }
@@ -976,6 +1010,140 @@
         <div>Выделите зону, класс или стрелку на схеме. Нажмите «Да» внизу экрана, чтобы открыть базу знаний с описанием.</div>
         <div class="hint">Поиск по материалам — в боковом меню. «База знаний» в меню открывает карточку выбранного объекта.</div>
       `;
+    }
+
+    function buildSearchRegexFromQuery(query) {
+      const tokens = expandQueryTokens(tokenizeQuery(String(query || ""))).filter((t) => t.length >= 3);
+      if (!tokens.length) return null;
+      const uniq = [...new Set(tokens)].sort((a, b) => b.length - a.length);
+      const parts = uniq.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      try {
+        return new RegExp(`(${parts.join("|")})`, "gi");
+      } catch {
+        return null;
+      }
+    }
+
+    function clearKbSearchHighlightUi() {
+      [entityCard, vendorCard].forEach((root) => {
+        if (!root) return;
+        root.querySelectorAll("mark.kb-search-hit").forEach((m) => {
+          m.replaceWith(document.createTextNode(m.textContent));
+        });
+      });
+      if (kbSearchHitNav) kbSearchHitNav.innerHTML = "";
+      kbSearchHitMarks = [];
+      kbSearchHitIndex = 0;
+    }
+
+    function highlightQueryInRoot(root, re) {
+      if (!root || !re) return;
+      const skip = new Set(["SCRIPT", "STYLE", "MARK", "TEXTAREA"]);
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+      const textNodes = [];
+      while (walker.nextNode()) textNodes.push(walker.currentNode);
+      for (const textNode of textNodes) {
+        let p = textNode.parentElement;
+        let ok = true;
+        while (p) {
+          if (skip.has(p.tagName)) { ok = false; break; }
+          p = p.parentElement;
+        }
+        if (!ok) continue;
+        const t = textNode.nodeValue;
+        if (!t) continue;
+        re.lastIndex = 0;
+        if (!re.test(t)) continue;
+        re.lastIndex = 0;
+        const frag = document.createDocumentFragment();
+        let last = 0;
+        let m;
+        while ((m = re.exec(t)) !== null) {
+          if (m.index > last) frag.appendChild(document.createTextNode(t.slice(last, m.index)));
+          const mk = document.createElement("mark");
+          mk.className = "kb-search-hit";
+          mk.textContent = m[0];
+          frag.appendChild(mk);
+          last = m.index + m[0].length;
+        }
+        if (last < t.length) frag.appendChild(document.createTextNode(t.slice(last)));
+        textNode.parentNode.replaceChild(frag, textNode);
+      }
+    }
+
+    function rebuildKbHitNavUi() {
+      if (!kbSearchHitNav) return;
+      if (!kbSearchHitMarks.length) {
+        kbSearchHitNav.innerHTML = "";
+        return;
+      }
+      if (kbSearchHitMarks.length === 1) {
+        kbSearchHitNav.innerHTML = `<span class="muted-text">${kbSearchHitMarks.length} вхожд.</span>`;
+        return;
+      }
+      kbSearchHitNav.innerHTML = `<button type="button" id="kbHitPrev" aria-label="Предыдущее">‹</button><span>${kbSearchHitIndex + 1}/${kbSearchHitMarks.length}</span><button type="button" id="kbHitNext" aria-label="Следующее">›</button>`;
+      document.getElementById("kbHitPrev")?.addEventListener("click", () => goKbSearchHit(-1));
+      document.getElementById("kbHitNext")?.addEventListener("click", () => goKbSearchHit(1));
+    }
+
+    function goKbSearchHit(delta) {
+      if (!kbSearchHitMarks.length) return;
+      kbSearchHitMarks[kbSearchHitIndex]?.classList.remove("kb-search-hit--current");
+      kbSearchHitIndex = (kbSearchHitIndex + delta + kbSearchHitMarks.length) % kbSearchHitMarks.length;
+      kbSearchHitMarks[kbSearchHitIndex]?.classList.add("kb-search-hit--current");
+      kbSearchHitMarks[kbSearchHitIndex]?.scrollIntoView({ block: "center", behavior: "smooth" });
+      rebuildKbHitNavUi();
+    }
+
+    function finalizeKbSearchHighlight(query) {
+      clearKbSearchHighlightUi();
+      const re = buildSearchRegexFromQuery(query);
+      if (!re) return;
+      highlightQueryInRoot(entityCard, re);
+      highlightQueryInRoot(vendorCard, re);
+      kbSearchHitMarks = knowledgeDockBody ? Array.from(knowledgeDockBody.querySelectorAll("mark.kb-search-hit")) : [];
+      kbSearchHitIndex = 0;
+      kbSearchHitMarks.forEach((mk, i) => mk.classList.toggle("kb-search-hit--current", i === 0));
+      kbSearchHitMarks.forEach((mk) => {
+        const d = mk.closest("details");
+        if (d) d.open = true;
+      });
+      if (kbSearchHitMarks[0]) kbSearchHitMarks[0].scrollIntoView({ block: "center", behavior: "smooth" });
+      rebuildKbHitNavUi();
+    }
+
+    function scrollMapSelectionIntoView() {
+      try {
+        if (selectedNodeId) {
+          workspace.querySelector(`.node[data-node-id="${selectedNodeId}"]`)?.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+        } else if (selectedZoneId) {
+          workspace.querySelector(`.zone[data-zone-id="${selectedZoneId}"]`)?.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+        } else if (selectedEdgeId) {
+          const ep = edgeEndpoints(edgeById(selectedEdgeId));
+          if (ep) {
+            const cx = ((ep.sx + ep.tx) / 2) * scale;
+            const cy = ((ep.sy + ep.ty) / 2) * scale;
+            viewport.scrollTo({
+              left: Math.max(0, cx - viewport.clientWidth / 2),
+              top: Math.max(0, cy - viewport.clientHeight / 2),
+              behavior: "smooth"
+            });
+            updateMinimap();
+          }
+        }
+      } catch (_) {}
+    }
+
+    async function applySearchResultPick(kind, id, queryText) {
+      const q = String(queryText || "").trim();
+      if (kind === "zone") selectZone(id);
+      else if (kind === "node") selectNode(id);
+      else if (kind === "edge") selectEdge(id);
+      await new Promise((r) => requestAnimationFrame(r));
+      scrollMapSelectionIntoView();
+      const tok = selectionDetailToken();
+      if (tok) promptSuppressedForToken = tok;
+      await openKnowledgeModal({ fromMenu: true, focusSearch: false, highlightQuery: q });
     }
 
     function searchIndexItems() {
@@ -999,6 +1167,22 @@
           id: n.id,
           title: n.label.replace(/\n/g, " "),
           body: `${ref.what || ""} ${ref.techGoal || ""} ${ref.businessGoal || ""} ${ref.howWorks || ""} ${functionsText}`
+        });
+      });
+      state.edges.forEach((ed) => {
+        const fromT = endpointTitlePlain(ed.from);
+        const toT = endpointTitlePlain(ed.to);
+        const typRu =
+          ed.type === "zone"
+            ? "связь зон архитектура слой агрегированный поток"
+            : ed.type === "alt"
+              ? "косвенная альтернативная оговорка отличие ролей риск путаницы"
+              : "прямая интеграция операционный обмен классами события api";
+        items.push({
+          kind: "edge",
+          id: ed.id,
+          title: `${fromT} → ${toT}`,
+          body: `${ed.label || ""} ${fromT} ${toT} ${typRu} ${ed.type}`
         });
       });
       return items;
@@ -1044,85 +1228,89 @@
       }
       sidebarSearchResults.innerHTML = `
         <h4>Результаты</h4>
-        ${results.map(r => `<div class="result-item" data-result-kind="${r.kind}" data-result-id="${r.id}"><b>${esc(r.title)}</b><div class="muted-text">${r.kind === "zone" ? "зона" : "класс"} · ${r.score}</div></div>`).join("")}
+        ${results.map((r) => {
+          const kindRu = r.kind === "zone" ? "зона" : r.kind === "edge" ? "связь" : "класс";
+          return `<div class="result-item" data-result-kind="${r.kind}" data-result-id="${esc(r.id)}"><b>${esc(r.title)}</b><div class="muted-text">${kindRu} · ${r.score}</div></div>`;
+        }).join("")}
       `;
-      Array.from(sidebarSearchResults.querySelectorAll(".result-item")).forEach(el => {
+      const qNow = String(query || "").trim();
+      Array.from(sidebarSearchResults.querySelectorAll(".result-item")).forEach((el) => {
         el.addEventListener("click", () => {
           const kind = el.dataset.resultKind;
           const id = el.dataset.resultId;
-          if (kind === "zone") selectZone(id);
-          if (kind === "node") selectNode(id);
+          void applySearchResultPick(kind, id, qNow);
         });
       });
     }
 
     const state = {
       zones: [
-        { id: "z-src", title: "Источники первичных данных", x: 120, y: 40, w: 520, h: 170, color: "#3b82f6" },
-        { id: "z-disc", title: "Discovery / Inventory слой", x: 700, y: 40, w: 560, h: 190, color: "#65a30d" },
-        { id: "z-norm", title: "Нормализация / идентификация / обогащение", x: 1280, y: 270, w: 600, h: 250, color: "#0284c7" },
-        { id: "z-itsm", title: "ITSM / Service Management", x: 720, y: 600, w: 700, h: 360, color: "#ca8a04" },
-        { id: "z-fin", title: "ITAM / SAM / Finance", x: 1500, y: 620, w: 560, h: 300, color: "#ea580c" },
-        { id: "z-sec", title: "Security / Risk / Compliance", x: 120, y: 1030, w: 740, h: 300, color: "#dc2626" },
-        { id: "z-ops", title: "Monitoring / Operations", x: 930, y: 1020, w: 610, h: 300, color: "#0891b2" },
-        { id: "z-cld", title: "Cloud / Hybrid", x: 1860, y: 260, w: 480, h: 200, color: "#7c3aed" },
-        { id: "z-bi", title: "BI / Governance", x: 1970, y: 1020, w: 480, h: 230, color: "#16a34a" }
+        { id: "z-src", title: "Источники первичных данных", x: 310, y: 50, w: 500, h: 190, color: "#3b82f6" },
+        { id: "z-disc", title: "Discovery / Inventory слой", x: 860, y: 50, w: 650, h: 210, color: "#65a30d" },
+        { id: "z-cld", title: "Cloud / Hybrid", x: 1560, y: 50, w: 520, h: 210, color: "#7c3aed" },
+        { id: "z-cmdb", title: "CMDB · Golden Record (SoT)", x: 1140, y: 280, w: 280, h: 200, color: "#0f172a" },
+        { id: "z-norm", title: "Нормализация / идентификация / обогащение", x: 860, y: 510, w: 650, h: 280, color: "#0284c7" },
+        { id: "z-itsm", title: "ITSM / Service Management", x: 860, y: 830, w: 760, h: 360, color: "#ca8a04" },
+        { id: "z-fin", title: "ITAM / SAM / Finance", x: 1680, y: 830, w: 560, h: 320, color: "#ea580c" },
+        { id: "z-sec", title: "Security / Risk / Compliance", x: 310, y: 1230, w: 860, h: 320, color: "#dc2626" },
+        { id: "z-ops", title: "Monitoring / Operations", x: 1220, y: 1230, w: 700, h: 320, color: "#0891b2" },
+        { id: "z-bi", title: "BI / Governance", x: 1970, y: 1230, w: 520, h: 260, color: "#16a34a" }
       ],
       nodes: [
-        { id: "n-hub", label: "CMDB / Asset Data Hub\nGolden Record", x: 1040, y: 400, zoneId: null, hub: true },
+        { id: "n-hub", label: "CMDB / Asset Data Hub\nGolden Record", x: 1460, y: 320, zoneId: "z-cmdb", hub: true },
 
-        { id: "n-src1", label: "Endpoints / Servers", x: 150, y: 90, zoneId: "z-src" },
-        { id: "n-src2", label: "HRM / HRIS", x: 330, y: 90, zoneId: "z-src" },
-        { id: "n-src3", label: "ERP / Procurement", x: 500, y: 90, zoneId: "z-src" },
-        { id: "n-src4", label: "IAM / IGA / PAM", x: 320, y: 145, zoneId: "z-src" },
+        { id: "n-src1", label: "Endpoints / Servers", x: 360, y: 95, zoneId: "z-src" },
+        { id: "n-src2", label: "HRM / HRIS", x: 520, y: 95, zoneId: "z-src" },
+        { id: "n-src3", label: "ERP / Procurement", x: 680, y: 95, zoneId: "z-src" },
+        { id: "n-src4", label: "IAM / IGA / PAM", x: 490, y: 155, zoneId: "z-src" },
 
-        { id: "n-d1", label: "Discovery / Inventory", x: 820, y: 95, zoneId: "z-disc" },
-        { id: "n-d3", label: "Cloud Inventory", x: 1040, y: 95, zoneId: "z-disc" },
-        { id: "n-d4", label: "UEM / MDM", x: 760, y: 155, zoneId: "z-disc" },
-        { id: "n-d5", label: "NAC", x: 900, y: 155, zoneId: "z-disc" },
-        { id: "n-d6", label: "IPAM / DNS / DHCP", x: 1005, y: 155, zoneId: "z-disc" },
-        { id: "n-d7", label: "Network Mgmt / NMS", x: 1145, y: 155, zoneId: "z-disc" },
+        { id: "n-d1", label: "Discovery / Inventory", x: 960, y: 95, zoneId: "z-disc" },
+        { id: "n-d3", label: "Cloud Inventory", x: 1180, y: 95, zoneId: "z-disc" },
+        { id: "n-d4", label: "UEM / MDM", x: 900, y: 165, zoneId: "z-disc" },
+        { id: "n-d5", label: "NAC", x: 1040, y: 165, zoneId: "z-disc" },
+        { id: "n-d6", label: "IPAM / DNS / DHCP", x: 1145, y: 165, zoneId: "z-disc" },
+        { id: "n-d7", label: "Network Mgmt / NMS", x: 1285, y: 165, zoneId: "z-disc" },
 
-        { id: "n-n1", label: "Normalization Engine", x: 1370, y: 320, zoneId: "z-norm" },
-        { id: "n-n2", label: "Reconciliation / De-dup", x: 1540, y: 450, zoneId: "z-norm" },
-        { id: "n-n3", label: "Software Recognition", x: 1320, y: 450, zoneId: "z-norm" },
-        { id: "n-n4", label: "Ownership Enrichment", x: 1700, y: 450, zoneId: "z-norm" },
+        { id: "n-n1", label: "Normalization Engine", x: 1060, y: 560, zoneId: "z-norm" },
+        { id: "n-n2", label: "Reconciliation / De-dup", x: 1170, y: 690, zoneId: "z-norm" },
+        { id: "n-n3", label: "Software Recognition", x: 930, y: 690, zoneId: "z-norm" },
+        { id: "n-n4", label: "Ownership Enrichment", x: 1350, y: 690, zoneId: "z-norm" },
 
-        { id: "n-t1", label: "ITSM Core", x: 1030, y: 700, zoneId: "z-itsm" },
-        { id: "n-t2", label: "Service Desk", x: 1240, y: 690, zoneId: "z-itsm" },
-        { id: "n-t3", label: "Incident Mgmt", x: 800, y: 860, zoneId: "z-itsm" },
-        { id: "n-t4", label: "Change Mgmt", x: 980, y: 860, zoneId: "z-itsm" },
-        { id: "n-t5", label: "Problem Mgmt", x: 1160, y: 860, zoneId: "z-itsm" },
-        { id: "n-t6", label: "Service Catalog", x: 1340, y: 860, zoneId: "z-itsm" },
-        { id: "n-t7", label: "Knowledge Base", x: 1230, y: 790, zoneId: "z-itsm" },
-        { id: "n-t8", label: "Release Mgmt", x: 1410, y: 790, zoneId: "z-itsm" },
-        { id: "n-t9", label: "BPM / Workflow", x: 1420, y: 860, zoneId: "z-itsm" },
+        { id: "n-t1", label: "ITSM Core", x: 1140, y: 920, zoneId: "z-itsm" },
+        { id: "n-t2", label: "Service Desk", x: 1350, y: 920, zoneId: "z-itsm" },
+        { id: "n-t3", label: "Incident Mgmt", x: 940, y: 1090, zoneId: "z-itsm" },
+        { id: "n-t4", label: "Change Mgmt", x: 1100, y: 1090, zoneId: "z-itsm" },
+        { id: "n-t5", label: "Problem Mgmt", x: 1260, y: 1090, zoneId: "z-itsm" },
+        { id: "n-t6", label: "Service Catalog", x: 1440, y: 1090, zoneId: "z-itsm" },
+        { id: "n-t7", label: "Knowledge Base", x: 1340, y: 1020, zoneId: "z-itsm" },
+        { id: "n-t8", label: "Release Mgmt", x: 1520, y: 1020, zoneId: "z-itsm" },
+        { id: "n-t9", label: "BPM / Workflow", x: 1530, y: 1090, zoneId: "z-itsm" },
 
-        { id: "n-f1", label: "ITAM", x: 1590, y: 700, zoneId: "z-fin" },
-        { id: "n-f2", label: "SAM", x: 1730, y: 700, zoneId: "z-fin" },
-        { id: "n-f3", label: "FinOps", x: 1900, y: 700, zoneId: "z-fin" },
-        { id: "n-f4", label: "License Mgmt", x: 1700, y: 800, zoneId: "z-fin" },
-        { id: "n-f5", label: "Asset Lifecycle", x: 1540, y: 800, zoneId: "z-fin" },
-        { id: "n-f6", label: "ERP Sync", x: 1870, y: 800, zoneId: "z-fin" },
+        { id: "n-f1", label: "ITAM", x: 1780, y: 930, zoneId: "z-fin" },
+        { id: "n-f2", label: "SAM", x: 1930, y: 930, zoneId: "z-fin" },
+        { id: "n-f3", label: "FinOps", x: 2090, y: 930, zoneId: "z-fin" },
+        { id: "n-f4", label: "License Mgmt", x: 1900, y: 1040, zoneId: "z-fin" },
+        { id: "n-f5", label: "Asset Lifecycle", x: 1750, y: 1040, zoneId: "z-fin" },
+        { id: "n-f6", label: "ERP Sync", x: 2070, y: 1040, zoneId: "z-fin" },
 
-        { id: "n-s1", label: "SIEM", x: 240, y: 1110, zoneId: "z-sec" },
-        { id: "n-s2", label: "Vulnerability Mgmt", x: 430, y: 1110, zoneId: "z-sec" },
-        { id: "n-s6", label: "PAM", x: 630, y: 1110, zoneId: "z-sec" },
-        { id: "n-s3", label: "EDR", x: 240, y: 1210, zoneId: "z-sec" },
-        { id: "n-s4", label: "DLP", x: 430, y: 1210, zoneId: "z-sec" },
-        { id: "n-s5", label: "GRC", x: 630, y: 1210, zoneId: "z-sec" },
+        { id: "n-s1", label: "SIEM", x: 400, y: 1310, zoneId: "z-sec" },
+        { id: "n-s2", label: "Vulnerability Mgmt", x: 590, y: 1310, zoneId: "z-sec" },
+        { id: "n-s6", label: "PAM", x: 790, y: 1310, zoneId: "z-sec" },
+        { id: "n-s3", label: "EDR", x: 400, y: 1410, zoneId: "z-sec" },
+        { id: "n-s4", label: "DLP", x: 590, y: 1410, zoneId: "z-sec" },
+        { id: "n-s5", label: "GRC", x: 790, y: 1410, zoneId: "z-sec" },
 
-        { id: "n-o1", label: "Monitoring / Event", x: 1020, y: 1110, zoneId: "z-ops" },
-        { id: "n-o2", label: "APM / Observability", x: 1230, y: 1110, zoneId: "z-ops" },
-        { id: "n-o3", label: "Deployment / SW Dist", x: 980, y: 1210, zoneId: "z-ops" },
-        { id: "n-o4", label: "Patch Management", x: 1180, y: 1210, zoneId: "z-ops" },
-        { id: "n-o5", label: "Configuration Mgmt", x: 1360, y: 1210, zoneId: "z-ops" },
+        { id: "n-o1", label: "Monitoring / Event", x: 1300, y: 1310, zoneId: "z-ops" },
+        { id: "n-o2", label: "APM / Observability", x: 1510, y: 1310, zoneId: "z-ops" },
+        { id: "n-o3", label: "Deployment / SW Dist", x: 1270, y: 1410, zoneId: "z-ops" },
+        { id: "n-o4", label: "Patch Management", x: 1460, y: 1410, zoneId: "z-ops" },
+        { id: "n-o5", label: "Configuration Mgmt", x: 1640, y: 1410, zoneId: "z-ops" },
 
-        { id: "n-c1", label: "CMP", x: 1920, y: 320, zoneId: "z-cld" },
-        { id: "n-c2", label: "Cloud Governance", x: 2090, y: 320, zoneId: "z-cld" },
+        { id: "n-c1", label: "CMP", x: 1680, y: 95, zoneId: "z-cld" },
+        { id: "n-c2", label: "Cloud Governance", x: 1850, y: 95, zoneId: "z-cld" },
 
-        { id: "n-b1", label: "BI / DWH", x: 2060, y: 1080, zoneId: "z-bi" },
-        { id: "n-b2", label: "Executive Dashboards", x: 2220, y: 1080, zoneId: "z-bi" }
+        { id: "n-b1", label: "BI / DWH", x: 2060, y: 1280, zoneId: "z-bi" },
+        { id: "n-b2", label: "Executive Dashboards", x: 2220, y: 1280, zoneId: "z-bi" }
       ],
       edges: [
         { id: "e1", from: "n-src1", to: "n-d1", label: "CI атрибуты · инвентарные признаки", type: "direct", c: {x: 470, y: 120} },
@@ -1206,15 +1394,11 @@
 
     function isNodeInViewForZones(n, zset) {
       if (!n) return false;
-      if (n.hub && !n.zoneId) return true;
-      if (!n.zoneId) return true;
-      if (zset === null) return true;
-      return zset.has(n.zoneId);
+      return true;
     }
 
     function isZoneFrameVisibleInFilter(z, zset) {
-      if (zset === null) return true;
-      return zset.has(z.id);
+      return true;
     }
 
     function isEdgeTypePassFilter(e) {
@@ -1224,18 +1408,29 @@
       return true;
     }
 
-    function endpointVisibleForFilter(id, zset) {
-      if (id.startsWith("z-")) {
-        if (!zoneById(id)) return false;
-        if (zset === null) return true;
-        return zset.has(id);
-      }
-      return isNodeInViewForZones(nodeById(id), zset);
+    function zoneMapDimmedByFilter(z, zset) {
+      return zset !== null && !zset.has(z.id);
+    }
+
+    function nodeMapDimmedByFilter(n, zset) {
+      if (!n || n.hub || !n.zoneId) return false;
+      return zset !== null && !zset.has(n.zoneId);
+    }
+
+    function endpointMapDimmedForZoneFilter(id, zset) {
+      if (zset === null) return false;
+      if (id.startsWith("z-")) return !zset.has(id);
+      const n = nodeById(id);
+      if (!n || n.hub || !n.zoneId) return false;
+      return !zset.has(n.zoneId);
+    }
+
+    function edgeMapDimmedByZoneFilter(e, zset) {
+      return endpointMapDimmedForZoneFilter(e.from, zset) || endpointMapDimmedForZoneFilter(e.to, zset);
     }
 
     function isEdgeVisibleInFilter(e, zset) {
-      if (!isEdgeTypePassFilter(e)) return false;
-      return endpointVisibleForFilter(e.from, zset) && endpointVisibleForFilter(e.to, zset);
+      return isEdgeTypePassFilter(e);
     }
 
     function initViewFiltersUi() {
@@ -1330,13 +1525,51 @@
     const GRID = 24;
     const EXTRA_GRID_CELLS = 10;
     const EXTRA_PX = GRID * EXTRA_GRID_CELLS;
-    const HUB_NODE_ID = "n-hub";
+    const ORTHO_STEP = 36;
 
     function snapGridCoord(v) {
       return Math.round(v / GRID) * GRID;
     }
 
-    function edgeAllowedZoneIds(e) {
+    function pointInRect(x, y, r) {
+      return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    }
+
+    function segmentHitsRect(x1, y1, x2, y2, r) {
+      const len = Math.hypot(x2 - x1, y2 - y1);
+      const steps = Math.max(2, Math.ceil(len / 14));
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const x = x1 + (x2 - x1) * t;
+        const y = y1 + (y2 - y1) * t;
+        if (pointInRect(x, y, r)) return true;
+      }
+      return false;
+    }
+
+    function polylineHitsObstacle(pts, obs) {
+      for (let i = 1; i < pts.length; i++) {
+        const ax = pts[i - 1].x, ay = pts[i - 1].y, bx = pts[i].x, by = pts[i].y;
+        for (const r of obs) {
+          if (segmentHitsRect(ax, ay, bx, by, r)) return true;
+        }
+      }
+      return false;
+    }
+
+    function simplifyOrthoPolyline(pts) {
+      if (pts.length <= 2) return pts;
+      const out = [pts[0]];
+      for (let i = 1; i < pts.length - 1; i++) {
+        const a = out[out.length - 1], b = pts[i], c = pts[i + 1];
+        const colin = (a.x === b.x && b.x === c.x) || (a.y === b.y && b.y === c.y);
+        if (!colin) out.push(b);
+      }
+      out.push(pts[pts.length - 1]);
+      return out;
+    }
+
+    function endpointAllowZonesForRouting(e) {
       const s = new Set();
       if (e.from.startsWith("z-")) s.add(e.from);
       if (e.to.startsWith("z-")) s.add(e.to);
@@ -1347,132 +1580,171 @@
       return s;
     }
 
-    function segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy) {
-      const o1 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-      const o2 = (bx - ax) * (dy - ay) - (by - ay) * (dx - ax);
-      const o3 = (dx - cx) * (ay - cy) - (dy - cy) * (ax - cx);
-      const o4 = (dx - cx) * (by - cy) - (dy - cy) * (bx - cx);
-      const sgn = (v) => (v > 1e-9 ? 1 : v < -1e-9 ? -1 : 0);
-      const s1 = sgn(o1) * sgn(o2);
-      const s2 = sgn(o3) * sgn(o4);
-      if (s1 < 0 && s2 < 0) return true;
-      return false;
-    }
-
-    function segIntersectsExpandedRect(x1, y1, x2, y2, rx, ry, rw, rh) {
-      const minx = Math.min(x1, x2);
-      const maxx = Math.max(x1, x2);
-      const miny = Math.min(y1, y2);
-      const maxy = Math.max(y1, y2);
-      if (maxx < rx || minx > rx + rw || maxy < ry || miny > ry + rh) return false;
-      const r = [
-        [rx, ry, rx + rw, ry],
-        [rx, ry + rh, rx + rw, ry + rh],
-        [rx, ry, rx, ry + rh],
-        [rx + rw, ry, rx + rw, ry + rh]
-      ];
-      for (let i = 0; i < 4; i++) {
-        const [ax, ay, bx, by] = r[i];
-        if (segmentsIntersect(x1, y1, x2, y2, ax, ay, bx, by)) return true;
-      }
-      const ins = (px, py) => px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
-      return ins(x1, y1) || ins(x2, y2);
-    }
-
-    function segmentHitsForeignZone(x1, y1, x2, y2, allowedZoneIds) {
-      const pad = 32;
+    function buildRoutingObstacles(e) {
+      const PAD = 14;
+      const allowZ = endpointAllowZonesForRouting(e);
+      const skip = new Set();
+      if (!e.from.startsWith("z-")) skip.add(e.from);
+      if (!e.to.startsWith("z-")) skip.add(e.to);
+      const obs = [];
       for (const z of state.zones) {
-        if (allowedZoneIds.has(z.id)) continue;
-        if (segIntersectsExpandedRect(x1, y1, x2, y2, z.x - pad, z.y - pad, z.w + pad * 2, z.h + pad * 2)) return true;
+        if (allowZ.has(z.id)) continue;
+        obs.push({ x: z.x - PAD, y: z.y - PAD, w: z.w + 2 * PAD, h: z.h + 2 * PAD });
       }
-      return false;
-    }
-
-    function polylineForeignCrossings(pts, allowedZoneIds) {
-      let n = 0;
-      for (let i = 0; i < pts.length - 1; i++) {
-        const a = pts[i];
-        const b = pts[i + 1];
-        for (const z of state.zones) {
-          if (allowedZoneIds.has(z.id)) continue;
-          const pad = 32;
-          if (segIntersectsExpandedRect(a.x, a.y, b.x, b.y, z.x - pad, z.y - pad, z.w + pad * 2, z.h + pad * 2)) n++;
-        }
+      for (const n of state.nodes) {
+        if (skip.has(n.id)) continue;
+        const rr = rectForEntity(n, false);
+        obs.push({ x: rr.x - PAD, y: rr.y - PAD, w: rr.w + 2 * PAD, h: rr.h + 2 * PAD });
       }
-      return n;
+      return obs;
     }
 
-    function maybeAssignOrthogonalPolyline(e, ep) {
-      const allowed = edgeAllowedZoneIds(e);
-      if (!segmentHitsForeignZone(ep.sx, ep.sy, ep.tx, ep.ty, allowed)) {
-        e.polyline = null;
-        return;
+    function tryOrthoHV(sx, sy, tx, ty, obs) {
+      const a = [{ x: sx, y: sy }, { x: tx, y: sy }, { x: tx, y: ty }];
+      const b = [{ x: sx, y: sy }, { x: sx, y: ty }, { x: tx, y: ty }];
+      if (!polylineHitsObstacle(a, obs)) return simplifyOrthoPolyline(a);
+      if (!polylineHitsObstacle(b, obs)) return simplifyOrthoPolyline(b);
+      return null;
+    }
+
+    function tryOrthoZ(sx, sy, tx, ty, obs, W, H) {
+      const xs = [];
+      const ys = [];
+      for (let t = 0.25; t <= 0.75; t += 0.12) {
+        xs.push(snapGridCoord(sx + (tx - sx) * t));
+        ys.push(snapGridCoord(sy + (ty - sy) * t));
       }
-      const my = snapGridCoord((ep.sy + ep.ty) / 2);
-      const routeH = [
-        { x: ep.sx, y: ep.sy },
-        { x: ep.sx, y: my },
-        { x: ep.tx, y: my },
-        { x: ep.tx, y: ep.ty }
-      ];
-      const mx = snapGridCoord((ep.sx + ep.tx) / 2);
-      const routeV = [
-        { x: ep.sx, y: ep.sy },
-        { x: mx, y: ep.sy },
-        { x: mx, y: ep.ty },
-        { x: ep.tx, y: ep.ty }
-      ];
-      const hC = polylineForeignCrossings(routeH, allowed);
-      const vC = polylineForeignCrossings(routeV, allowed);
-      e.polyline = hC <= vC ? routeH : routeV;
-    }
-
-    function buildHubEdgeAngularRank() {
-      const hubNode = nodeById(HUB_NODE_ID);
-      const map = new Map();
-      if (!hubNode) return map;
-      const hc = anchorCenter(hubNode, false);
-      const items = [];
-      state.edges.forEach((e) => {
-        if (e.from !== HUB_NODE_ID && e.to !== HUB_NODE_ID) return;
-        const ep = edgeEndpoints(e);
-        if (!ep) return;
-        const ox = e.from === HUB_NODE_ID ? ep.tx : ep.sx;
-        const oy = e.from === HUB_NODE_ID ? ep.ty : ep.sy;
-        const ang = Math.atan2(oy - hc.y, ox - hc.x);
-        items.push({ id: e.id, ang });
-      });
-      items.sort((a, b) => a.ang - b.ang);
-      const mid = (items.length - 1) / 2;
-      items.forEach((it, i) => map.set(it.id, i - mid));
-      return map;
-    }
-
-    function relaxEdgeControlsPass() {
-      state.edges.forEach((e) => {
-        if (e.polyline || !e.c) return;
-        let fx = 0;
-        let fy = 0;
-        const allowed = edgeAllowedZoneIds(e);
-        for (const z of state.zones) {
-          if (allowed.has(z.id)) continue;
-          const zx = z.x + z.w / 2;
-          const zy = z.y + z.h / 2;
-          const dx = e.c.x - zx;
-          const dy = e.c.y - zy;
-          const d = Math.hypot(dx, dy);
-          if (d < 200 && d > 8) {
-            const w = 9000 / (d * d);
-            fx += (dx / d) * w;
-            fy += (dy / d) * w;
+      xs.push(snapGridCoord(W / 2), snapGridCoord(W * 0.25), snapGridCoord(W * 0.75));
+      ys.push(snapGridCoord(H / 2), snapGridCoord(H * 0.35));
+      const ux = [...new Set(xs)].filter((x) => x > 24 && x < W - 24).slice(0, 14);
+      const uy = [...new Set(ys)].filter((y) => y > 24 && y < H - 24).slice(0, 14);
+      for (const mx of ux) {
+        for (const my of uy) {
+          const p1 = [{ x: sx, y: sy }, { x: mx, y: sy }, { x: mx, y: ty }, { x: tx, y: ty }];
+          const p2 = [{ x: sx, y: sy }, { x: sx, y: my }, { x: tx, y: my }, { x: tx, y: ty }];
+          for (const pl of [p1, p2]) {
+            if (!polylineHitsObstacle(pl, obs)) return simplifyOrthoPolyline(pl);
           }
         }
-        e.c.x += fx * 0.42;
-        e.c.y += fy * 0.42;
-        e.c.x = Math.max(8, Math.min(workspaceW() - 8, e.c.x));
-        e.c.y = Math.max(8, Math.min(workspaceH() - 8, e.c.y));
-        e.c.x = snapGridCoord(e.c.x);
-        e.c.y = snapGridCoord(e.c.y);
+      }
+      return null;
+    }
+
+    function cellKey(cx, cy) {
+      return cx + "," + cy;
+    }
+
+    function cellCenter(cx, cy) {
+      const G = ORTHO_STEP;
+      return { x: cx * G + G / 2, y: cy * G + G / 2 };
+    }
+
+    function findFreeGridNear(px, py, obs, W, H) {
+      const G = ORTHO_STEP;
+      const maxCx = Math.floor(W / G) + 2;
+      const maxCy = Math.floor(H / G) + 2;
+      const cx0 = Math.max(0, Math.min(maxCx, Math.floor(px / G)));
+      const cy0 = Math.max(0, Math.min(maxCy, Math.floor(py / G)));
+      const ok = (cx, cy) => {
+        if (cx < 0 || cy < 0 || cx > maxCx || cy > maxCy) return null;
+        const p = cellCenter(cx, cy);
+        for (const r of obs) {
+          if (pointInRect(p.x, p.y, r)) return null;
+        }
+        return [cx, cy];
+      };
+      let hit = ok(cx0, cy0);
+      if (hit) return hit;
+      for (let rad = 1; rad < 120; rad++) {
+        for (let dx = -rad; dx <= rad; dx++) {
+          for (let dy = -rad; dy <= rad; dy++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== rad) continue;
+            hit = ok(cx0 + dx, cy0 + dy);
+            if (hit) return hit;
+          }
+        }
+      }
+      return [cx0, cy0];
+    }
+
+    function isCellBlocked(cx, cy, obs, exempt) {
+      if (exempt.has(cellKey(cx, cy))) return false;
+      const p = cellCenter(cx, cy);
+      for (const r of obs) {
+        if (pointInRect(p.x, p.y, r)) return true;
+      }
+      return false;
+    }
+
+    function orthoRouteBFS(sx, sy, tx, ty, obs, W, H) {
+      const G = ORTHO_STEP;
+      const maxCx = Math.floor(W / G) + 3;
+      const maxCy = Math.floor(H / G) + 3;
+      const [scx, scy] = findFreeGridNear(sx, sy, obs, W, H);
+      const [tcx, tcy] = findFreeGridNear(tx, ty, obs, W, H);
+      const exempt = new Set([cellKey(scx, scy), cellKey(tcx, tcy)]);
+      const q = [];
+      const prev = new Map();
+      q.push([scx, scy]);
+      prev.set(cellKey(scx, scy), null);
+      const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      let found = false;
+      while (q.length) {
+        const [cx, cy] = q.shift();
+        if (cx === tcx && cy === tcy) {
+          found = true;
+          break;
+        }
+        for (const [dx, dy] of dirs) {
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx < 0 || ny < 0 || nx > maxCx || ny > maxCy) continue;
+          const nk = cellKey(nx, ny);
+          if (prev.has(nk)) continue;
+          if (isCellBlocked(nx, ny, obs, exempt)) continue;
+          prev.set(nk, [cx, cy]);
+          q.push([nx, ny]);
+        }
+      }
+      if (!found) return null;
+      const cells = [];
+      let cur = cellKey(tcx, tcy);
+      while (cur) {
+        const [px, py] = cur.split(",").map(Number);
+        cells.unshift([px, py]);
+        const pr = prev.get(cur);
+        cur = pr ? cellKey(pr[0], pr[1]) : null;
+      }
+      const pts = [{ x: sx, y: sy }];
+      for (const [cx, cy] of cells) {
+        const c = cellCenter(cx, cy);
+        pts.push({ x: snapGridCoord(c.x), y: snapGridCoord(c.y) });
+      }
+      const last = pts[pts.length - 1];
+      if (Math.hypot(last.x - tx, last.y - ty) > 6) pts.push({ x: tx, y: ty });
+      return simplifyOrthoPolyline(pts);
+    }
+
+    function orthoPolylineForEdge(e) {
+      const ep = edgeEndpoints(e);
+      if (!ep) return null;
+      const obs = buildRoutingObstacles(e);
+      const W = workspaceW();
+      const H = workspaceH();
+      const two = tryOrthoHV(ep.sx, ep.sy, ep.tx, ep.ty, obs);
+      if (two) return two;
+      const zig = tryOrthoZ(ep.sx, ep.sy, ep.tx, ep.ty, obs, W, H);
+      if (zig) return zig;
+      const bf = orthoRouteBFS(ep.sx, ep.sy, ep.tx, ep.ty, obs, W, H);
+      if (bf) return bf;
+      return [{ x: ep.sx, y: ep.sy }, { x: ep.tx, y: ep.ty }];
+    }
+
+    function recomputeEdgeOrthos() {
+      state.edges.forEach((e) => {
+        delete e.c;
+        delete e.polyline;
+        e.orthoPts = orthoPolylineForEdge(e);
       });
     }
 
@@ -1504,11 +1776,11 @@
 
     function workspaceW() {
       const w = parseInt(workspace.style.width, 10);
-      return Number.isFinite(w) && w > 0 ? w : 2840;
+      return Number.isFinite(w) && w > 0 ? w : 3280;
     }
     function workspaceH() {
       const h = parseInt(workspace.style.height, 10);
-      return Number.isFinite(h) && h > 0 ? h : 1840;
+      return Number.isFinite(h) && h > 0 ? h : 2000;
     }
 
     function updateMinimap() {
@@ -1519,9 +1791,9 @@
       const zset = visibleZoneFilterSet();
       const parts = [];
       state.zones.forEach((z) => {
-        if (!isZoneFrameVisibleInFilter(z, zset)) return;
+        const dim = zoneMapDimmedByFilter(z, zset);
         const sel = selectedZoneId === z.id;
-        parts.push(`<rect class="mm-zone${sel ? " sel" : ""}" x="${z.x}" y="${z.y}" width="${z.w}" height="${z.h}" rx="10" />`);
+        parts.push(`<rect class="mm-zone${sel ? " sel" : ""}${dim ? " mm-dim" : ""}" x="${z.x}" y="${z.y}" width="${z.w}" height="${z.h}" rx="10" />`);
       });
       const sl = viewport.scrollLeft / scale;
       const st = viewport.scrollTop / scale;
@@ -1530,101 +1802,14 @@
       parts.push(`<rect class="mm-view" x="${sl}" y="${st}" width="${vw}" height="${vh}" />`);
       if (selectedEdgeId) {
         const e = edgeById(selectedEdgeId);
-        if (e && isEdgeVisibleInFilter(e, zset)) {
-          if (!editMode && e.polyline && e.polyline.length >= 2) {
-            const pts = e.polyline;
-            let d = `M ${pts[0].x} ${pts[0].y}`;
-            for (let i = 1; i < pts.length; i++) d += ` L ${pts[i].x} ${pts[i].y}`;
-            parts.push(`<path class="mm-edge-hl" d="${d}" />`);
-          } else {
-            const ep = edgeEndpoints(e);
-            if (ep) {
-              parts.push(`<line class="mm-edge-hl" x1="${ep.sx}" y1="${ep.sy}" x2="${ep.tx}" y2="${ep.ty}" />`);
-            }
-          }
+        if (e && isEdgeVisibleInFilter(e, zset) && e.orthoPts && e.orthoPts.length >= 2) {
+          const pts = e.orthoPts;
+          let d = `M ${pts[0].x} ${pts[0].y}`;
+          for (let i = 1; i < pts.length; i++) d += ` L ${pts[i].x} ${pts[i].y}`;
+          parts.push(`<path class="mm-edge-hl" d="${d}" />`);
         }
       }
       minimapSvg.innerHTML = parts.join("");
-    }
-
-    function simplifyRoutes(mode = "normal") {
-      const groups = new Map();
-      state.edges.forEach((e) => {
-        const key = `${e.from}__${e.to}__${e.type}`;
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(e);
-      });
-
-      const hubRank = buildHubEdgeAngularRank();
-      const hubNode = nodeById(HUB_NODE_ID);
-
-      state.edges.forEach((e) => {
-        const ep = edgeEndpoints(e);
-        if (!ep) return;
-        e.polyline = null;
-        const mx = (ep.sx + ep.tx) / 2;
-        const my = (ep.sy + ep.ty) / 2;
-        const dx = ep.tx - ep.sx;
-        const dy = ep.ty - ep.sy;
-        const len = Math.max(1, Math.hypot(dx, dy));
-        const nx = -dy / len;
-        const ny = dx / len;
-
-        const baseCurve =
-          mode === "minCross"
-            ? (e.type === "zone" ? 220 : e.type === "alt" ? 140 : 88)
-            : (e.type === "zone" ? 120 : e.type === "alt" ? 80 : 52);
-
-        const key = `${e.from}__${e.to}__${e.type}`;
-        const arr = groups.get(key) || [e];
-        const idx = arr.indexOf(e);
-        const spread = (idx - (arr.length - 1) / 2) * (mode === "minCross" ? 72 : 34);
-
-        const isHubEdge = e.from === HUB_NODE_ID || e.to === HUB_NODE_ID;
-        const hubFactor = isHubEdge
-          ? (mode === "minCross" ? 0.95 : 0.72)
-          : 1;
-
-        const longFactor = mode === "minCross"
-          ? (len > 1100 ? 1.55 : len > 800 ? 1.4 : len > 550 ? 1.2 : 1.0)
-          : (len > 700 ? 1.25 : len > 450 ? 1.1 : 1.0);
-
-        let curve = baseCurve * hubFactor * longFactor + spread;
-        if (isHubEdge) curve *= mode === "minCross" ? 1.06 : 1.12;
-
-        let cx = mx + nx * curve;
-        let cy = my + ny * curve;
-
-        if (isHubEdge && hubNode) {
-          const hc = anchorCenter(hubNode, false);
-          const vx = mx - hc.x;
-          const vy = my - hc.y;
-          const vlen = Math.max(35, Math.hypot(vx, vy));
-          const hi = hubRank.get(e.id) ?? 0;
-          const fan = mode === "minCross" ? 12 : 9;
-          cx += (vx / vlen) * hi * fan;
-          cy += (vy / vlen) * hi * fan;
-          const spreadHub = mode === "minCross" ? 11 : 8;
-          cx += nx * hi * spreadHub;
-          cy += ny * hi * spreadHub;
-        }
-
-        e.c = { x: cx, y: cy };
-      });
-
-      state.edges.forEach((e) => {
-        const ep = edgeEndpoints(e);
-        if (!ep) return;
-        maybeAssignOrthogonalPolyline(e, ep);
-      });
-
-      for (let pass = 0; pass < 2; pass++) {
-        relaxEdgeControlsPass();
-      }
-    }
-    function zoneContainsNode(zone, node) {
-      const c = anchorCenter(node, false);
-      return c.x >= zone.x && c.x <= zone.x + zone.w && c.y >= zone.y && c.y <= zone.y + zone.h;
     }
 
     function clearDom() {
@@ -1633,18 +1818,19 @@
     }
 
     function applyCleanLayout() {
-      // Зоны: слева направо и сверху вниз по архитектурным слоям.
-      // +EXTRA_PX по X: запас слева (10 клеток сетки), полотно шире — диаграмма не «прилипает» к краю.
+      workspace.style.width = "3280px";
+      workspace.style.height = "2000px";
       const zonePos = {
         "z-src":  { x: 70 + EXTRA_PX,   y: 50,  w: 500, h: 190 },
         "z-disc": { x: 620 + EXTRA_PX,  y: 50,  w: 650, h: 210 },
-        "z-cld":  { x: 1330 + EXTRA_PX, y: 50,  w: 520, h: 210 },
-        "z-norm": { x: 620 + EXTRA_PX,  y: 300, w: 650, h: 250 },
-        "z-itsm": { x: 620 + EXTRA_PX,  y: 600, w: 760, h: 360 },
-        "z-fin":  { x: 1440 + EXTRA_PX, y: 600, w: 560, h: 320 },
-        "z-sec":  { x: 70 + EXTRA_PX,   y: 1020,w: 860, h: 320 },
-        "z-ops":  { x: 980 + EXTRA_PX,  y: 1020,w: 700, h: 320 },
-        "z-bi":   { x: 1730 + EXTRA_PX, y: 1020,w: 520, h: 260 }
+        "z-cld":  { x: 1320 + EXTRA_PX, y: 50,  w: 520, h: 210 },
+        "z-cmdb": { x: 900 + EXTRA_PX,  y: 280, w: 280, h: 200 },
+        "z-norm": { x: 620 + EXTRA_PX,  y: 510, w: 650, h: 280 },
+        "z-itsm": { x: 620 + EXTRA_PX,  y: 830, w: 760, h: 360 },
+        "z-fin":  { x: 1440 + EXTRA_PX, y: 830, w: 560, h: 320 },
+        "z-sec":  { x: 70 + EXTRA_PX,   y: 1230, w: 860, h: 320 },
+        "z-ops":  { x: 980 + EXTRA_PX,  y: 1230, w: 700, h: 320 },
+        "z-bi":   { x: 1730 + EXTRA_PX, y: 1230, w: 520, h: 260 }
       };
       state.zones.forEach((z) => {
         const p = zonePos[z.id];
@@ -1652,18 +1838,17 @@
         z.x = p.x; z.y = p.y; z.w = p.w; z.h = p.h;
       });
 
-      // Классы: аккуратная раскладка внутри зон.
       const nodePos = {
         "n-src1": [120 + EXTRA_PX, 95], "n-src2": [280 + EXTRA_PX, 95], "n-src3": [440 + EXTRA_PX, 95], "n-src4": [250 + EXTRA_PX, 155],
         "n-d1": [720 + EXTRA_PX, 95], "n-d3": [990 + EXTRA_PX, 95], "n-d4": [680 + EXTRA_PX, 165], "n-d5": [850 + EXTRA_PX, 165], "n-d6": [995 + EXTRA_PX, 165], "n-d7": [1135 + EXTRA_PX, 165],
         "n-c1": [1440 + EXTRA_PX, 95], "n-c2": [1630 + EXTRA_PX, 95],
-        "n-n1": [820 + EXTRA_PX, 340], "n-n3": [690 + EXTRA_PX, 460], "n-n2": [930 + EXTRA_PX, 460], "n-n4": [1110 + EXTRA_PX, 460],
-        "n-hub": [980 + EXTRA_PX, 350],
-        "n-t1": [900 + EXTRA_PX, 690], "n-t2": [1120 + EXTRA_PX, 690], "n-t3": [700 + EXTRA_PX, 840], "n-t4": [860 + EXTRA_PX, 840], "n-t5": [1020 + EXTRA_PX, 840], "n-t6": [1180 + EXTRA_PX, 840], "n-t7": [1110 + EXTRA_PX, 770], "n-t8": [1260 + EXTRA_PX, 770], "n-t9": [1320 + EXTRA_PX, 840],
-        "n-f1": [1540 + EXTRA_PX, 700], "n-f2": [1690 + EXTRA_PX, 700], "n-f3": [1850 + EXTRA_PX, 700], "n-f4": [1660 + EXTRA_PX, 810], "n-f5": [1510 + EXTRA_PX, 810], "n-f6": [1830 + EXTRA_PX, 810],
-        "n-s1": [170 + EXTRA_PX, 1120], "n-s2": [370 + EXTRA_PX, 1120], "n-s6": [570 + EXTRA_PX, 1120], "n-s3": [170 + EXTRA_PX, 1230], "n-s4": [370 + EXTRA_PX, 1230], "n-s5": [570 + EXTRA_PX, 1230],
-        "n-o1": [1060 + EXTRA_PX, 1120], "n-o2": [1280 + EXTRA_PX, 1120], "n-o3": [1030 + EXTRA_PX, 1230], "n-o4": [1230 + EXTRA_PX, 1230], "n-o5": [1420 + EXTRA_PX, 1230],
-        "n-b1": [1830 + EXTRA_PX, 1090], "n-b2": [2030 + EXTRA_PX, 1090]
+        "n-n1": [820 + EXTRA_PX, 560], "n-n3": [690 + EXTRA_PX, 690], "n-n2": [930 + EXTRA_PX, 690], "n-n4": [1110 + EXTRA_PX, 690],
+        "n-hub": [1220 + EXTRA_PX, 320],
+        "n-t1": [900 + EXTRA_PX, 920], "n-t2": [1120 + EXTRA_PX, 920], "n-t3": [700 + EXTRA_PX, 1090], "n-t4": [860 + EXTRA_PX, 1090], "n-t5": [1020 + EXTRA_PX, 1090], "n-t6": [1180 + EXTRA_PX, 1090], "n-t7": [1110 + EXTRA_PX, 1020], "n-t8": [1260 + EXTRA_PX, 1020], "n-t9": [1320 + EXTRA_PX, 1090],
+        "n-f1": [1540 + EXTRA_PX, 930], "n-f2": [1690 + EXTRA_PX, 930], "n-f3": [1850 + EXTRA_PX, 930], "n-f4": [1660 + EXTRA_PX, 1040], "n-f5": [1510 + EXTRA_PX, 1040], "n-f6": [1830 + EXTRA_PX, 1040],
+        "n-s1": [170 + EXTRA_PX, 1310], "n-s2": [370 + EXTRA_PX, 1310], "n-s6": [570 + EXTRA_PX, 1310], "n-s3": [170 + EXTRA_PX, 1410], "n-s4": [370 + EXTRA_PX, 1410], "n-s5": [570 + EXTRA_PX, 1410],
+        "n-o1": [1060 + EXTRA_PX, 1310], "n-o2": [1280 + EXTRA_PX, 1310], "n-o3": [1030 + EXTRA_PX, 1410], "n-o4": [1230 + EXTRA_PX, 1410], "n-o5": [1420 + EXTRA_PX, 1410],
+        "n-b1": [1830 + EXTRA_PX, 1280], "n-b2": [2030 + EXTRA_PX, 1280]
       };
       state.nodes.forEach((n) => {
         const p = nodePos[n.id];
@@ -1671,52 +1856,11 @@
         n.x = p[0]; n.y = p[1];
       });
 
-      // Сброс ручных маршрутов — пересчитаются автоматически и станут чище.
-      state.edges.forEach((e) => { e.c = null; e.polyline = null; });
-    }
-
-    function applyMinCrossLayout() {
-      // Более крупное полотно под уменьшение пересечений (+EXTRA_PX по ширине и сдвиг X).
-      workspace.style.width = `${3600 + EXTRA_PX}px`;
-      workspace.style.height = "2300px";
-
-      const zonePos = {
-        "z-src":  { x: 90 + EXTRA_PX,   y: 70,   w: 700, h: 260 },
-        "z-disc": { x: 920 + EXTRA_PX,  y: 70,   w: 920, h: 280 },
-        "z-cld":  { x: 1960 + EXTRA_PX, y: 70,   w: 760, h: 260 },
-        "z-norm": { x: 980 + EXTRA_PX,  y: 440,  w: 940, h: 340 },
-        "z-itsm": { x: 980 + EXTRA_PX,  y: 900,  w: 1100, h: 500 },
-        "z-fin":  { x: 2220 + EXTRA_PX, y: 900,  w: 860, h: 440 },
-        "z-sec":  { x: 90 + EXTRA_PX,   y: 1540, w: 1140, h: 460 },
-        "z-ops":  { x: 1360 + EXTRA_PX, y: 1540, w: 980, h: 460 },
-        "z-bi":   { x: 2500 + EXTRA_PX, y: 1540, w: 900, h: 360 }
-      };
-      state.zones.forEach((z) => {
-        const p = zonePos[z.id];
-        if (!p) return;
-        z.x = p.x; z.y = p.y; z.w = p.w; z.h = p.h;
+      state.edges.forEach((e) => {
+        delete e.c;
+        delete e.polyline;
+        delete e.orthoPts;
       });
-
-      // Больше расстояний между узлами внутри зон.
-      const nodePos = {
-        "n-hub": [1480 + EXTRA_PX, 600],
-        "n-src1": [150 + EXTRA_PX, 130], "n-src2": [390 + EXTRA_PX, 130], "n-src3": [620 + EXTRA_PX, 130], "n-src4": [390 + EXTRA_PX, 220],
-        "n-d1": [1120 + EXTRA_PX, 130], "n-d3": [1480 + EXTRA_PX, 130], "n-d4": [1040 + EXTRA_PX, 230], "n-d5": [1290 + EXTRA_PX, 230], "n-d6": [1500 + EXTRA_PX, 230], "n-d7": [1710 + EXTRA_PX, 230],
-        "n-c1": [2060 + EXTRA_PX, 130], "n-c2": [2360 + EXTRA_PX, 130],
-        "n-n1": [1260 + EXTRA_PX, 520], "n-n3": [1080 + EXTRA_PX, 680], "n-n2": [1420 + EXTRA_PX, 680], "n-n4": [1650 + EXTRA_PX, 680],
-        "n-t1": [1300 + EXTRA_PX, 1040], "n-t2": [1620 + EXTRA_PX, 1040], "n-t3": [1040 + EXTRA_PX, 1260], "n-t4": [1260 + EXTRA_PX, 1260], "n-t5": [1480 + EXTRA_PX, 1260], "n-t6": [1700 + EXTRA_PX, 1260], "n-t7": [1580 + EXTRA_PX, 1140], "n-t8": [1780 + EXTRA_PX, 1140], "n-t9": [1910 + EXTRA_PX, 1260],
-        "n-f1": [2310 + EXTRA_PX, 1040], "n-f2": [2550 + EXTRA_PX, 1040], "n-f3": [2820 + EXTRA_PX, 1040], "n-f4": [2510 + EXTRA_PX, 1190], "n-f5": [2270 + EXTRA_PX, 1190], "n-f6": [2780 + EXTRA_PX, 1190],
-        "n-s1": [170 + EXTRA_PX, 1680], "n-s2": [460 + EXTRA_PX, 1680], "n-s6": [760 + EXTRA_PX, 1680], "n-s3": [170 + EXTRA_PX, 1840], "n-s4": [460 + EXTRA_PX, 1840], "n-s5": [760 + EXTRA_PX, 1840],
-        "n-o1": [1470 + EXTRA_PX, 1680], "n-o2": [1780 + EXTRA_PX, 1680], "n-o3": [1420 + EXTRA_PX, 1840], "n-o4": [1690 + EXTRA_PX, 1840], "n-o5": [1940 + EXTRA_PX, 1840],
-        "n-b1": [2620 + EXTRA_PX, 1640], "n-b2": [2940 + EXTRA_PX, 1640]
-      };
-      state.nodes.forEach((n) => {
-        const p = nodePos[n.id];
-        if (!p) return;
-        n.x = p[0]; n.y = p[1];
-      });
-
-      state.edges.forEach((e) => { e.c = null; e.polyline = null; });
     }
 
     function render() {
@@ -1735,16 +1879,16 @@
           <path d="M0,0 L9,3 L0,6 z" fill="#475569"></path>
         </marker>
         <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
-          <path d="M0,0 L9,3 L0,6 z" fill="#16a34a"></path>
+          <path d="M0,0 L9,3 L0,6 z" fill="#0f766e"></path>
         </marker>
       `;
       edgesSvg.appendChild(defs);
 
       // zones
-      state.zones.forEach(z => {
+      state.zones.forEach((z) => {
         if (!isZoneFrameVisibleInFilter(z, zset)) return;
         const el = document.createElement("div");
-        el.className = "zone";
+        el.className = "zone" + (zoneMapDimmedByFilter(z, zset) ? " map-dimmed" : "");
         el.dataset.zoneId = z.id;
         el.style.left = z.x + "px"; el.style.top = z.y + "px";
         el.style.width = z.w + "px"; el.style.height = z.h + "px";
@@ -1754,22 +1898,16 @@
         header.className = "zone-header";
         header.textContent = z.title;
         el.appendChild(header);
-        if (editMode) {
-          const rh = document.createElement("div");
-          rh.className = "zone-resize";
-          rh.dataset.zoneId = z.id;
-          el.appendChild(rh);
-        }
         workspace.appendChild(el);
       });
 
       workspace.appendChild(edgesSvg);
 
       // nodes
-      state.nodes.forEach(n => {
+      state.nodes.forEach((n) => {
         if (!isNodeInViewForZones(n, zset)) return;
         const el = document.createElement("div");
-        el.className = "node" + (n.hub ? " hub" : "");
+        el.className = "node" + (n.hub ? " hub" : "") + (nodeMapDimmedByFilter(n, zset) ? " map-dimmed" : "");
         el.dataset.nodeId = n.id;
         el.style.left = n.x + "px"; el.style.top = n.y + "px";
         const r = nodeRect(n);
@@ -1778,10 +1916,12 @@
         workspace.appendChild(el);
       });
 
-      // edges
-      state.edges.forEach(e => {
+      // edges: зона → альтернатива → прямой (снизу вверх по z-index визуально)
+      const edgeOrder = { zone: 0, alt: 1, direct: 2 };
+      const sortedEdges = [...state.edges].sort((a, b) => (edgeOrder[a.type] ?? 9) - (edgeOrder[b.type] ?? 9));
+      sortedEdges.forEach((e) => {
         if (!isEdgeVisibleInFilter(e, zset)) return;
-        drawEdge(e);
+        drawEdge(e, zset);
       });
 
       bindInteractions();
@@ -1789,32 +1929,27 @@
       updateMinimap();
     }
 
-    function drawEdge(e) {
-      const ep = edgeEndpoints(e);
-      if (!ep) return;
-
-      let d;
-      let labelX;
-      let labelY;
-      const usePoly = !editMode && Array.isArray(e.polyline) && e.polyline.length >= 2;
-
-      if (usePoly) {
-        const pts = e.polyline;
-        d = `M ${pts[0].x} ${pts[0].y}`;
-        for (let i = 1; i < pts.length; i++) d += ` L ${pts[i].x} ${pts[i].y}`;
-        const mi = Math.floor((pts.length - 1) / 2);
-        const lp = pts[mi];
-        labelX = lp.x;
-        labelY = lp.y - 6;
-      } else {
-        if (!e.c) e.c = { x: (ep.sx + ep.tx) / 2, y: (ep.sy + ep.ty) / 2 - 40 };
-        d = `M ${ep.sx} ${ep.sy} Q ${e.c.x} ${e.c.y} ${ep.tx} ${ep.ty}`;
-        labelX = 0.25 * ep.sx + 0.5 * e.c.x + 0.25 * ep.tx;
-        labelY = 0.25 * ep.sy + 0.5 * e.c.y + 0.25 * ep.ty - 6;
+    function drawEdge(e, zset) {
+      const pts = e.orthoPts;
+      if (!pts || pts.length < 2) return;
+      if (zset === undefined) zset = visibleZoneFilterSet();
+      let d = `M ${pts[0].x} ${pts[0].y}`;
+      for (let i = 1; i < pts.length; i++) d += ` L ${pts[i].x} ${pts[i].y}`;
+      let labelX = (pts[0].x + pts[pts.length - 1].x) / 2;
+      let labelY = (pts[0].y + pts[pts.length - 1].y) / 2 - 6;
+      let best = 0;
+      for (let i = 1; i < pts.length; i++) {
+        const len = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+        if (len > best) {
+          best = len;
+          labelX = (pts[i - 1].x + pts[i].x) / 2;
+          labelY = (pts[i - 1].y + pts[i].y) / 2 - 6;
+        }
       }
 
       const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
       g.dataset.edgeId = e.id;
+      if (edgeMapDimmedByZoneFilter(e, zset)) g.classList.add("edge-group--mapdim");
 
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("d", d);
@@ -1836,28 +1971,7 @@
         g.appendChild(t);
       }
 
-      if (editMode && selectedEdgeId === e.id && e.c) {
-        const cp = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        cp.setAttribute("class", "control-point");
-        cp.setAttribute("r", "7");
-        cp.setAttribute("cx", e.c.x);
-        cp.setAttribute("cy", e.c.y);
-        cp.dataset.edgeId = e.id;
-        g.appendChild(cp);
-      }
       edgesSvg.appendChild(g);
-    }
-
-    function setEditMode(on) {
-      editMode = on;
-      editToggle.textContent = on ? "Редактировать: вкл" : "Редактировать: выкл";
-      editToggle.classList.toggle("active", on);
-      if (on) {
-        state.edges.forEach((edg) => { edg.polyline = null; });
-      } else {
-        simplifyRoutes("normal");
-      }
-      render();
     }
 
     function selectEdge(edgeId) {
@@ -2055,195 +2169,22 @@
         nEl.onclick = (ev) => {
           const nid = nEl.dataset.nodeId;
           if (!nid) return;
-          if (createEdgeMode && editMode) {
-            if (!edgeFrom) {
-              edgeFrom = nid;
-              nEl.classList.add("selected");
-            } else {
-              const id = "e" + (Date.now());
-              state.edges.push({ id, from: edgeFrom, to: nid, label: "", type: "direct", c: null });
-              createEdgeMode = false;
-              edgeFrom = null;
-              addEdgeBtn.classList.remove("active");
-              render();
-              updateDetailPrompt();
-            }
-            ev.stopPropagation();
-            return;
-          }
           selectNode(nid);
           ev.stopPropagation();
-        };
-      });
-
-      // drag zones & nodes
-      if (editMode) {
-        enableDragZones();
-        enableResizeZones();
-        enableDragNodes();
-        enableDragControlPoint();
-      }
-    }
-
-    function enableDragZones() {
-      workspace.querySelectorAll(".zone").forEach(zEl => {
-        const zId = zEl.dataset.zoneId;
-        zEl.onmousedown = (ev) => {
-          if (!editMode || ev.button !== 0) return;
-          ev.preventDefault();
-          const z = zoneById(zId);
-          const sx = ev.clientX, sy = ev.clientY;
-          const ox = z.x, oy = z.y;
-          const inside = state.nodes.filter(n => n.zoneId === zId).map(n => ({ id: n.id, x: n.x, y: n.y }));
-          const mm = (e) => {
-            const dx = (e.clientX - sx) / scale;
-            const dy = (e.clientY - sy) / scale;
-            z.x = ox + dx; z.y = oy + dy;
-            inside.forEach(item => {
-              const n = nodeById(item.id);
-              n.x = item.x + dx; n.y = item.y + dy;
-            });
-            render();
-          };
-          const mu = () => { window.removeEventListener("mousemove", mm); window.removeEventListener("mouseup", mu); };
-          window.addEventListener("mousemove", mm);
-          window.addEventListener("mouseup", mu);
-        };
-      });
-    }
-
-    function enableResizeZones() {
-      workspace.querySelectorAll(".zone-resize").forEach((h) => {
-        const zId = h.dataset.zoneId;
-        h.onmousedown = (ev) => {
-          if (!editMode || ev.button !== 0) return;
-          ev.preventDefault();
-          ev.stopPropagation();
-          const z = zoneById(zId);
-          const sx = ev.clientX, sy = ev.clientY;
-          const ow = z.w, oh = z.h;
-          const minW = 260, minH = 140;
-          const mm = (e) => {
-            const dx = (e.clientX - sx) / scale;
-            const dy = (e.clientY - sy) / scale;
-            z.w = Math.max(minW, ow + dx);
-            z.h = Math.max(minH, oh + dy);
-            render();
-          };
-          const mu = () => {
-            window.removeEventListener("mousemove", mm);
-            window.removeEventListener("mouseup", mu);
-          };
-          window.addEventListener("mousemove", mm);
-          window.addEventListener("mouseup", mu);
-        };
-      });
-    }
-
-    function enableDragNodes() {
-      workspace.querySelectorAll(".node").forEach(nEl => {
-        const nId = nEl.dataset.nodeId;
-        nEl.onmousedown = (ev) => {
-          if (!editMode || ev.button !== 0) return;
-          ev.preventDefault();
-          const n = nodeById(nId);
-          const sx = ev.clientX, sy = ev.clientY;
-          const ox = n.x, oy = n.y;
-          const mm = (e) => {
-            const dx = (e.clientX - sx) / scale;
-            const dy = (e.clientY - sy) / scale;
-            n.x = ox + dx; n.y = oy + dy;
-            render();
-          };
-          const mu = () => { window.removeEventListener("mousemove", mm); window.removeEventListener("mouseup", mu); };
-          window.addEventListener("mousemove", mm);
-          window.addEventListener("mouseup", mu);
-        };
-      });
-    }
-
-    function enableDragControlPoint() {
-      edgesSvg.querySelectorAll(".control-point").forEach(cp => {
-        cp.onmousedown = (ev) => {
-          if (!editMode || ev.button !== 0) return;
-          ev.preventDefault();
-          ev.stopPropagation();
-          const edge = edgeById(cp.dataset.edgeId);
-          const sx = ev.clientX, sy = ev.clientY;
-          const ox = edge.c.x, oy = edge.c.y;
-          const mm = (e) => {
-            const dx = (e.clientX - sx) / scale;
-            const dy = (e.clientY - sy) / scale;
-            edge.c.x = ox + dx; edge.c.y = oy + dy;
-            render();
-          };
-          const mu = () => { window.removeEventListener("mousemove", mm); window.removeEventListener("mouseup", mu); };
-          window.addEventListener("mousemove", mm);
-          window.addEventListener("mouseup", mu);
         };
       });
     }
 
     // toolbar
-    editToggle.onclick = () => setEditMode(!editMode);
-    addZoneBtn.onclick = () => {
-      if (!editMode) return alert("Сначала включите режим Редактировать.");
-      const title = prompt("Название зоны:");
-      if (!title) return;
-      const id = "z-" + Date.now();
-      state.zones.push({ id, title, x: 300, y: 300, w: 420, h: 220, color: "#0ea5e9" });
-      render();
-    };
-    addClassBtn.onclick = () => {
-      if (!editMode) return alert("Сначала включите режим Редактировать.");
-      const label = prompt("Название класса:");
-      if (!label) return;
-      const zoneId = prompt("ID зоны (например z-itsm), пусто = без зоны:");
-      const id = "n-" + Date.now();
-      state.nodes.push({ id, label, x: 500, y: 500, zoneId: zoneId || null, hub: false });
-      render();
-    };
-    addEdgeBtn.onclick = () => {
-      if (!editMode) return alert("Сначала включите режим Редактировать.");
-      createEdgeMode = !createEdgeMode;
-      edgeFrom = null;
-      addEdgeBtn.classList.toggle("active", createEdgeMode);
-      if (createEdgeMode) alert("Режим + Связь: кликните сначала по узлу-источнику, затем по узлу-получателю.");
-      render();
-    };
-    fitBtn.onclick = () => {
-      scale = Math.min(viewport.clientWidth / workspace.clientWidth, viewport.clientHeight / workspace.clientHeight);
-      workspace.style.transform = `scale(${scale})`;
-      viewport.scrollLeft = 0; viewport.scrollTop = 0;
-    };
-    resetBtn.onclick = () => {
-      scale = 1;
-      workspace.style.transform = "scale(1)";
-      viewport.scrollLeft = 0; viewport.scrollTop = 0;
-    };
     exportBtn.onclick = () => {
-      const out = JSON.stringify(state, null, 2);
+      const clone = JSON.parse(JSON.stringify(state));
+      clone.edges.forEach((ed) => {
+        delete ed.orthoPts;
+        delete ed.c;
+        delete ed.polyline;
+      });
+      const out = JSON.stringify(clone, null, 2);
       navigator.clipboard.writeText(out).then(() => alert("JSON скопирован в буфер обмена."));
-    };
-    layoutBtn.onclick = () => {
-      workspace.style.width = "2840px";
-      workspace.style.height = "1840px";
-      applyCleanLayout();
-      simplifyRoutes("normal");
-      render();
-    };
-    untangleBtn.onclick = () => {
-      simplifyRoutes("normal");
-      render();
-    };
-    minCrossBtn.onclick = () => {
-      applyMinCrossLayout();
-      simplifyRoutes("minCross");
-      render();
-      scale = 0.56;
-      workspace.style.transform = `scale(${scale})`;
-      viewport.scrollLeft = 0;
-      viewport.scrollTop = 0;
     };
 
     viewport.addEventListener("wheel", (e) => {
@@ -2313,7 +2254,7 @@
 
     initViewFiltersUi();
     applyCleanLayout();
-    simplifyRoutes("normal");
+    recomputeEdgeOrthos();
     renderVendorStub();
     void renderEntityCard();
     sidebarSearchInput.addEventListener("input", (e) => runSearch(e.target.value));
