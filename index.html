@@ -33,7 +33,7 @@
     /* Полная высота: иначе при absolute-вьюпорте родитель схлопывается в 0 и паутина не видна */
     .workspace-wrap { position: absolute; inset: 0; overflow: hidden; }
     #workspace {
-      position: relative; width: 3280px; height: 2000px; margin: 0; background: #f8fafc;
+      position: relative; width: 3480px; height: 2080px; margin: 0; background: #f8fafc;
       background-image:
         linear-gradient(to right, rgba(15,23,42,0.04) 1px, transparent 1px),
         linear-gradient(to bottom, rgba(15,23,42,0.04) 1px, transparent 1px);
@@ -105,6 +105,21 @@
     .edge-label.edge-label--focus { opacity: 1; font-weight: 600; fill: #5b21b6; }
     #edges.edges-svg--focus .edge-path:not(.edge-path--focus):not(.edge-active) { transition: opacity 0.12s ease, stroke-width 0.12s ease; }
     .control-point { fill: #2563eb; stroke: #fff; stroke-width: 1.5; cursor: move; pointer-events: all; }
+    .edge-vertex { fill: #1d4ed8; stroke: #fff; stroke-width: 1.5; cursor: grab; pointer-events: all; }
+    .edge-vertex-html {
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      margin-left: -8px;
+      margin-top: -8px;
+      border-radius: 999px;
+      background: #1d4ed8;
+      border: 2px solid #fff;
+      box-shadow: 0 0 0 1px rgba(15,23,42,0.25);
+      cursor: grab;
+      z-index: 40;
+      pointer-events: all;
+    }
     .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .icon-btn { border: 1px solid #94a3b8; background: #fff; border-radius: 8px; padding: 2px 8px; cursor: pointer; font-size: 12px; }
     .fab-knowledge {
@@ -304,9 +319,17 @@
           <div id="viewZoneGrid" class="view-zone-grid" role="group" aria-label="Фильтр зон по галочкам" title="Снятая галочка: зона остаётся на карте в блюре, связи к ней приглушены. Все или ни одной = без фильтра."></div>
           <div class="hint" style="font-size:10px;margin-top:4px;">Снятые зоны не исчезают — серые и размытые; выбранные остаются читаемыми.</div>
         </div>
+        <h3 style="margin:10px 0 6px 0;font-size:12px;">Редактор карты</h3>
+        <button class="btn" id="editToggle">Редактировать: выкл</button>
+        <button class="btn" id="saveLayoutBtn" disabled title="Сохранить схему в JSON-файл">Сохранить</button>
         <button class="btn" id="exportBtn">Экспорт JSON</button>
         <button class="btn" id="openKnowledgeBtn">База знаний</button>
-        <span class="badge">v7 read-only · орто-связи · CMDB-зона</span>
+        <div class="sidebar-kb-gaps" style="margin-top:10px;border-top:1px solid #e2e8f0;padding-top:8px;">
+          <h3 style="margin:0 0 6px 0;font-size:12px;">Пробелы в базе знаний</h3>
+          <button type="button" class="btn" id="kbGapsRefreshBtn" style="margin-bottom:6px;">Обновить отчёт</button>
+          <div id="kbGapsReport" class="kb-gaps-report muted-text" style="font-size:11px;line-height:1.4;max-height:280px;overflow:auto;"></div>
+        </div>
+        <span class="badge">v8 edit + save · орто-связи</span>
       </div>
     </aside>
     <div class="workspace-wrap">
@@ -323,7 +346,7 @@
       </div>
       <div class="minimap-wrap" id="minimapWrap">
         <div class="minimap-title">Мини-карта</div>
-        <svg id="minimapSvg" width="196" height="120" viewBox="0 0 3280 2000" preserveAspectRatio="xMidYMid meet"></svg>
+        <svg id="minimapSvg" width="196" height="120" viewBox="0 0 3480 2080" preserveAspectRatio="xMidYMid meet"></svg>
       </div>
       <div class="knowledge-dock" id="infoPanel" role="complementary" aria-label="База знаний">
         <div class="knowledge-dock-head panel-head">
@@ -356,6 +379,10 @@
     const openKnowledgeBtn = document.getElementById("openKnowledgeBtn");
     const openKnowledgeFab = document.getElementById("openKnowledgeFab");
     const exportBtn = document.getElementById("exportBtn");
+    const editToggle = document.getElementById("editToggle");
+    const saveLayoutBtn = document.getElementById("saveLayoutBtn");
+    const kbGapsRefreshBtn = document.getElementById("kbGapsRefreshBtn");
+    const kbGapsReport = document.getElementById("kbGapsReport");
     const infoPanel = document.getElementById("infoPanel");
     const closeKnowledgeBtn = document.getElementById("closeKnowledgeBtn");
     const kbSearchHitNav = document.getElementById("kbSearchHitNav");
@@ -369,6 +396,12 @@
     const detailNo = document.getElementById("detailNo");
 
     let scale = 1;
+    let editMode = false;
+    let layoutDirty = false;
+    let layoutDragOp = null;
+    let layoutDragHadMove = false;
+    let suppressNodeClickOnce = false;
+    let suppressZoneClickOnce = false;
     let selectedEdgeId = null;
     let selectedNodeId = null;
     let selectedZoneId = null;
@@ -1725,10 +1758,11 @@
       return simplifyOrthoPolyline(pts);
     }
 
-    function orthoPolylineForEdge(e) {
+    function orthoPolylineForEdge(e, extraObs) {
       const ep = edgeEndpoints(e);
       if (!ep) return null;
-      const obs = buildRoutingObstacles(e);
+      const base = buildRoutingObstacles(e);
+      const obs = extraObs && extraObs.length ? base.concat(extraObs) : base;
       const W = workspaceW();
       const H = workspaceH();
       const two = tryOrthoHV(ep.sx, ep.sy, ep.tx, ep.ty, obs);
@@ -1740,11 +1774,47 @@
       return [{ x: ep.sx, y: ep.sy }, { x: ep.tx, y: ep.ty }];
     }
 
+    /** Прямоугольники вдоль уже проложенных рёбер — чтобы следующие не шли тем же «коридором». */
+    function corridorRectsFromPolyline(pts, pad) {
+      const p = Number.isFinite(pad) ? pad : 11;
+      const rects = [];
+      if (!pts || pts.length < 2) return rects;
+      for (let i = 1; i < pts.length; i++) {
+        const ax = pts[i - 1].x;
+        const ay = pts[i - 1].y;
+        const bx = pts[i].x;
+        const by = pts[i].y;
+        const horiz = Math.abs(by - ay) < 1.5;
+        if (horiz) {
+          const x0 = Math.min(ax, bx) - p;
+          const x1 = Math.max(ax, bx) + p;
+          rects.push({ x: x0, y: ay - p, w: Math.max(8, x1 - x0), h: 2 * p });
+        } else {
+          const y0 = Math.min(ay, by) - p;
+          const y1 = Math.max(ay, by) + p;
+          rects.push({ x: ax - p, y: y0, w: 2 * p, h: Math.max(8, y1 - y0) });
+        }
+      }
+      return rects;
+    }
+
     function recomputeEdgeOrthos() {
-      state.edges.forEach((e) => {
+      const edgeOrder = { zone: 0, alt: 1, direct: 2 };
+      const sorted = [...state.edges].sort((a, b) => (edgeOrder[a.type] ?? 9) - (edgeOrder[b.type] ?? 9));
+      const acc = [];
+      sorted.forEach((e) => {
+        if (e.manualRoute && Array.isArray(e.orthoPts) && e.orthoPts.length >= 2) {
+          acc.push(...corridorRectsFromPolyline(e.orthoPts, 10));
+        }
+      });
+      sorted.forEach((e) => {
+        if (e.manualRoute && Array.isArray(e.orthoPts) && e.orthoPts.length >= 2) return;
         delete e.c;
         delete e.polyline;
-        e.orthoPts = orthoPolylineForEdge(e);
+        e.orthoPts = orthoPolylineForEdge(e, acc);
+        if (e.orthoPts && e.orthoPts.length >= 2) {
+          acc.push(...corridorRectsFromPolyline(e.orthoPts, 10));
+        }
       });
     }
 
@@ -1776,11 +1846,11 @@
 
     function workspaceW() {
       const w = parseInt(workspace.style.width, 10);
-      return Number.isFinite(w) && w > 0 ? w : 3280;
+      return Number.isFinite(w) && w > 0 ? w : 3480;
     }
     function workspaceH() {
       const h = parseInt(workspace.style.height, 10);
-      return Number.isFinite(h) && h > 0 ? h : 2000;
+      return Number.isFinite(h) && h > 0 ? h : 2080;
     }
 
     function updateMinimap() {
@@ -1813,24 +1883,25 @@
     }
 
     function clearDom() {
-      Array.from(workspace.querySelectorAll(".zone,.node")).forEach(el => el.remove());
+      Array.from(workspace.querySelectorAll(".zone,.node,.edge-vertex-html")).forEach(el => el.remove());
       edgesSvg.innerHTML = "";
     }
 
     function applyCleanLayout() {
-      workspace.style.width = "3280px";
-      workspace.style.height = "2000px";
+      workspace.style.width = "3480px";
+      workspace.style.height = "2080px";
+      const E = EXTRA_PX;
       const zonePos = {
-        "z-src":  { x: 70 + EXTRA_PX,   y: 50,  w: 500, h: 190 },
-        "z-disc": { x: 620 + EXTRA_PX,  y: 50,  w: 650, h: 210 },
-        "z-cld":  { x: 1320 + EXTRA_PX, y: 50,  w: 520, h: 210 },
-        "z-cmdb": { x: 900 + EXTRA_PX,  y: 280, w: 280, h: 200 },
-        "z-norm": { x: 620 + EXTRA_PX,  y: 510, w: 650, h: 280 },
-        "z-itsm": { x: 620 + EXTRA_PX,  y: 830, w: 760, h: 360 },
-        "z-fin":  { x: 1440 + EXTRA_PX, y: 830, w: 560, h: 320 },
-        "z-sec":  { x: 70 + EXTRA_PX,   y: 1230, w: 860, h: 320 },
-        "z-ops":  { x: 980 + EXTRA_PX,  y: 1230, w: 700, h: 320 },
-        "z-bi":   { x: 1730 + EXTRA_PX, y: 1230, w: 520, h: 260 }
+        "z-src":  { x: 60 + E,   y: 48,  w: 520, h: 200 },
+        "z-disc": { x: 620 + E,  y: 48,  w: 680, h: 218 },
+        "z-cld":  { x: 1340 + E, y: 48,  w: 540, h: 218 },
+        "z-cmdb": { x: 960 + E,  y: 298, w: 308, h: 228 },
+        "z-norm": { x: 620 + E,  y: 568, w: 680, h: 300 },
+        "z-itsm": { x: 620 + E,  y: 910, w: 800, h: 380 },
+        "z-fin":  { x: 1480 + E, y: 910, w: 580, h: 340 },
+        "z-sec":  { x: 60 + E,   y: 1328, w: 900, h: 330 },
+        "z-ops":  { x: 1010 + E, y: 1328, w: 740, h: 330 },
+        "z-bi":   { x: 1800 + E, y: 1328, w: 540, h: 280 }
       };
       state.zones.forEach((z) => {
         const p = zonePos[z.id];
@@ -1839,16 +1910,16 @@
       });
 
       const nodePos = {
-        "n-src1": [120 + EXTRA_PX, 95], "n-src2": [280 + EXTRA_PX, 95], "n-src3": [440 + EXTRA_PX, 95], "n-src4": [250 + EXTRA_PX, 155],
-        "n-d1": [720 + EXTRA_PX, 95], "n-d3": [990 + EXTRA_PX, 95], "n-d4": [680 + EXTRA_PX, 165], "n-d5": [850 + EXTRA_PX, 165], "n-d6": [995 + EXTRA_PX, 165], "n-d7": [1135 + EXTRA_PX, 165],
-        "n-c1": [1440 + EXTRA_PX, 95], "n-c2": [1630 + EXTRA_PX, 95],
-        "n-n1": [820 + EXTRA_PX, 560], "n-n3": [690 + EXTRA_PX, 690], "n-n2": [930 + EXTRA_PX, 690], "n-n4": [1110 + EXTRA_PX, 690],
-        "n-hub": [1220 + EXTRA_PX, 320],
-        "n-t1": [900 + EXTRA_PX, 920], "n-t2": [1120 + EXTRA_PX, 920], "n-t3": [700 + EXTRA_PX, 1090], "n-t4": [860 + EXTRA_PX, 1090], "n-t5": [1020 + EXTRA_PX, 1090], "n-t6": [1180 + EXTRA_PX, 1090], "n-t7": [1110 + EXTRA_PX, 1020], "n-t8": [1260 + EXTRA_PX, 1020], "n-t9": [1320 + EXTRA_PX, 1090],
-        "n-f1": [1540 + EXTRA_PX, 930], "n-f2": [1690 + EXTRA_PX, 930], "n-f3": [1850 + EXTRA_PX, 930], "n-f4": [1660 + EXTRA_PX, 1040], "n-f5": [1510 + EXTRA_PX, 1040], "n-f6": [1830 + EXTRA_PX, 1040],
-        "n-s1": [170 + EXTRA_PX, 1310], "n-s2": [370 + EXTRA_PX, 1310], "n-s6": [570 + EXTRA_PX, 1310], "n-s3": [170 + EXTRA_PX, 1410], "n-s4": [370 + EXTRA_PX, 1410], "n-s5": [570 + EXTRA_PX, 1410],
-        "n-o1": [1060 + EXTRA_PX, 1310], "n-o2": [1280 + EXTRA_PX, 1310], "n-o3": [1030 + EXTRA_PX, 1410], "n-o4": [1230 + EXTRA_PX, 1410], "n-o5": [1420 + EXTRA_PX, 1410],
-        "n-b1": [1830 + EXTRA_PX, 1280], "n-b2": [2030 + EXTRA_PX, 1280]
+        "n-src1": [110 + E, 98], "n-src2": [280 + E, 98], "n-src3": [450 + E, 98], "n-src4": [260 + E, 168],
+        "n-d1": [720 + E, 98], "n-d3": [1000 + E, 98], "n-d4": [680 + E, 172], "n-d5": [860 + E, 172], "n-d6": [1010 + E, 172], "n-d7": [1160 + E, 172],
+        "n-c1": [1380 + E, 98], "n-c2": [1580 + E, 98],
+        "n-n1": [820 + E, 618], "n-n3": [690 + E, 748], "n-n2": [940 + E, 748], "n-n4": [1120 + E, 748],
+        "n-hub": [1054 + E, 352],
+        "n-t1": [900 + E, 998], "n-t2": [1120 + E, 998], "n-t3": [700 + E, 1178], "n-t4": [870 + E, 1178], "n-t5": [1040 + E, 1178], "n-t6": [1210 + E, 1178], "n-t7": [1110 + E, 1108], "n-t8": [1280 + E, 1108], "n-t9": [1360 + E, 1178],
+        "n-f1": [1560 + E, 1008], "n-f2": [1720 + E, 1008], "n-f3": [1890 + E, 1008], "n-f4": [1700 + E, 1128], "n-f5": [1540 + E, 1128], "n-f6": [1870 + E, 1128],
+        "n-s1": [160 + E, 1398], "n-s2": [360 + E, 1398], "n-s6": [560 + E, 1398], "n-s3": [160 + E, 1508], "n-s4": [360 + E, 1508], "n-s5": [560 + E, 1508],
+        "n-o1": [1080 + E, 1398], "n-o2": [1300 + E, 1398], "n-o3": [1040 + E, 1508], "n-o4": [1240 + E, 1508], "n-o5": [1440 + E, 1508],
+        "n-b1": [1880 + E, 1378], "n-b2": [2060 + E, 1378]
       };
       state.nodes.forEach((n) => {
         const p = nodePos[n.id];
@@ -1860,7 +1931,120 @@
         delete e.c;
         delete e.polyline;
         delete e.orthoPts;
+        delete e.manualRoute;
       });
+      ensureHubInCmdbZone();
+    }
+
+    function ensureHubInCmdbZone() {
+      const z = zoneById("z-cmdb");
+      const hub = nodeById("n-hub");
+      if (!z || !hub || !hub.hub) return;
+      const pad = 12;
+      hub.x = Math.min(Math.max(hub.x, z.x + pad), z.x + z.w - 120 - pad);
+      hub.y = Math.min(Math.max(hub.y, z.y + pad), z.y + z.h - 120 - pad);
+    }
+
+    function markLayoutDirty() {
+      layoutDirty = true;
+      if (saveLayoutBtn) {
+        saveLayoutBtn.disabled = false;
+        saveLayoutBtn.title = "Сохранить схему (есть несохранённые правки)";
+      }
+    }
+
+    function clearLayoutDirty() {
+      layoutDirty = false;
+      if (saveLayoutBtn) {
+        saveLayoutBtn.disabled = true;
+        saveLayoutBtn.title = "Сохранить схему в JSON-файл";
+      }
+    }
+
+    function setEditMode(on) {
+      layoutDragOp = null;
+      layoutDragHadMove = false;
+      editMode = !!on;
+      if (editToggle) {
+        editToggle.classList.toggle("active", editMode);
+        editToggle.textContent = editMode ? "Редактировать: вкл" : "Редактировать: выкл";
+      }
+      render();
+    }
+
+    function collectKbGaps() {
+      const out = [];
+      const refFields = ["what", "techGoal", "businessGoal", "howWorks"];
+      state.zones.forEach((z) => {
+        const kb = zoneKbById(z.id);
+        if (!kb) {
+          out.push(`Зона «${z.title}» (${z.id}): в KB.zones нет записи — недоступны поля what, techGoal, businessGoal, howWorks.`);
+          return;
+        }
+        const missing = refFields.filter((f) => !String(kb[f] || "").trim());
+        if (missing.length) {
+          out.push(`Зона «${z.title}» (${z.id}): не заполнены поля: ${missing.join(", ")}.`);
+        }
+      });
+      state.nodes.forEach((n) => {
+        const title = n.label.replace(/\n/g, " ").trim();
+        const cref = classRefByNode(n);
+        if (!cref) {
+          out.push(`Узел «${title}» (${n.id}): нет сопоставления с KB.classReference — нет выдержек what / techGoal / businessGoal / howWorks по классу.`);
+        } else {
+          const missing = refFields.filter((f) => !String(cref.data[f] || "").trim());
+          if (missing.length) {
+            out.push(`Справочник класса «${cref.key}» (узел ${n.id}): пустые поля: ${missing.join(", ")}.`);
+          }
+        }
+        const sheet = classSheetByNode(n);
+        if (!sheet) {
+          out.push(`Узел «${title}» (${n.id}): нет листа в KB.classSheets — для связей не подтягиваются функции (allFunctions / topFunctions).`);
+        } else {
+          const d = sheet.data;
+          const hasFns = sheetHasAllFunctions(d) || listFromValue(d?.topFunctions).length > 0;
+          if (!hasFns) {
+            out.push(`Лист «${sheet.key}» (${n.id}): нет списка функций (ни allFunctions, ни topFunctions).`);
+          }
+        }
+      });
+      state.edges.forEach((e) => {
+        const fromT = endpointTitlePlain(e.from);
+        const toT = endpointTitlePlain(e.to);
+        const head = `Связь ${e.id} («${fromT}» → «${toT}», тип ${e.type})`;
+        if (e.kb && typeof e.kb === "object") {
+          ["what", "why", "atSource", "atDest", "research"].forEach((f) => {
+            if (!String(e.kb[f] || "").trim()) out.push(`${head}: в объекте e.kb пусто поле «${f}».`);
+          });
+          return;
+        }
+        const fromB = endpointKbBundle(e.from);
+        const toB = endpointKbBundle(e.to);
+        if (!e.label || !String(e.label).trim()) {
+          out.push(`${head}: нет подписи на стрелке (label) — сложнее сопоставить поток с функциями в листах.`);
+        }
+        if (!e.from.startsWith("z-") && !fromB.ref && !fromB.sheet) {
+          out.push(`${head}: у источника «${fromT}» нет ни classReference, ни classSheets — блок «что на источнике» собирается шаблоном.`);
+        }
+        if (!e.to.startsWith("z-") && !toB.ref && !toB.sheet) {
+          out.push(`${head}: у приёмника «${toT}» нет ни classReference, ни classSheets — блок «что на приёмнике» собирается шаблоном.`);
+        }
+        const sec = buildEdgeKnowledgeSections(e);
+        const short = (s) => String(s || "").replace(/\s+/g, " ").trim().length < 24;
+        if (short(sec.what)) out.push(`${head}: слишком мало текста в агрегате «what» (${sec.what ? "укорочен" : "пусто"}) — дополните справочники концов или добавьте e.kb.what.`);
+        if (short(sec.why)) out.push(`${head}: слабый блок «why» — добавьте businessGoal/techGoal у концов или e.kb.why.`);
+        if (short(sec.atSource)) out.push(`${head}: слабый «atSource» — нужен howWorks или лист функций источника (или e.kb.atSource).`);
+        if (short(sec.atDest)) out.push(`${head}: слабый «atDest» — нужен howWorks или лист функций приёмника (или e.kb.atDest).`);
+      });
+      return out;
+    }
+
+    function refreshKbGapsReport() {
+      if (!kbGapsReport) return;
+      const g = collectKbGaps();
+      kbGapsReport.innerHTML = g.length
+        ? `<ol style="margin:0;padding-left:18px;">${g.map((t) => `<li>${esc(t)}</li>`).join("")}</ol>`
+        : `<div class="muted-text">Явных пробелов по проверяемым полям не найдено.</div>`;
     }
 
     function render() {
@@ -1894,14 +2078,19 @@
         el.style.width = z.w + "px"; el.style.height = z.h + "px";
         el.style.borderColor = z.color;
         el.style.background = z.color + "20";
+        if (editMode) el.style.cursor = "move";
         const header = document.createElement("div");
         header.className = "zone-header";
         header.textContent = z.title;
         el.appendChild(header);
+        if (editMode) {
+          const rz = document.createElement("div");
+          rz.className = "zone-resize";
+          rz.title = "Изменить размер зоны";
+          el.appendChild(rz);
+        }
         workspace.appendChild(el);
       });
-
-      workspace.appendChild(edgesSvg);
 
       // nodes
       state.nodes.forEach((n) => {
@@ -1910,11 +2099,15 @@
         el.className = "node" + (n.hub ? " hub" : "") + (nodeMapDimmedByFilter(n, zset) ? " map-dimmed" : "");
         el.dataset.nodeId = n.id;
         el.style.left = n.x + "px"; el.style.top = n.y + "px";
+        if (editMode) el.style.cursor = "move";
         const r = nodeRect(n);
         if (!n.hub) el.style.width = r.w + "px";
         el.textContent = n.label;
         workspace.appendChild(el);
       });
+
+      edgesSvg.style.zIndex = "15";
+      workspace.appendChild(edgesSvg);
 
       // edges: зона → альтернатива → прямой (снизу вверх по z-index визуально)
       const edgeOrder = { zone: 0, alt: 1, direct: 2 };
@@ -1923,6 +2116,23 @@
         if (!isEdgeVisibleInFilter(e, zset)) return;
         drawEdge(e, zset);
       });
+
+      if (editMode && selectedEdgeId) {
+        const eSel = edgeById(selectedEdgeId);
+        const pts = eSel?.orthoPts;
+        if (eSel && pts && pts.length > 2) {
+          for (let vi = 1; vi < pts.length - 1; vi++) {
+            const h = document.createElement("div");
+            h.className = "edge-vertex-html";
+            h.dataset.edgeId = eSel.id;
+            h.dataset.vi = String(vi);
+            h.style.left = pts[vi].x + "px";
+            h.style.top = pts[vi].y + "px";
+            h.title = "Перетащите, чтобы изменить излом линии";
+            workspace.appendChild(h);
+          }
+        }
+      }
 
       bindInteractions();
       applySelection();
@@ -2129,16 +2339,81 @@
       }
     }
 
-    function bindInteractions() {
-      // edge click
-      Array.from(edgesSvg.querySelectorAll("g[data-edge-id] .edge-hit, g[data-edge-id] .edge-path")).forEach(el => {
-        el.addEventListener("click", (e) => {
-          const edgeId = e.target.closest("g[data-edge-id]")?.dataset.edgeId;
-          if (edgeId) selectEdge(edgeId);
-          e.stopPropagation();
-        });
-      });
+    function beginLayoutDrag(op) {
+      layoutDragOp = op;
+      layoutDragHadMove = false;
+    }
 
+    function onLayoutDragMove(e) {
+      if (!layoutDragOp) return;
+      const dx = (e.clientX - layoutDragOp.sx) / scale;
+      const dy = (e.clientY - layoutDragOp.sy) / scale;
+      if (Math.abs(dx) + Math.abs(dy) > 1.5) layoutDragHadMove = true;
+      if (layoutDragOp.kind === "zone") {
+        const z = zoneById(layoutDragOp.id);
+        if (z) {
+          z.x = snapGridCoord(layoutDragOp.z0x + dx);
+          z.y = snapGridCoord(layoutDragOp.z0y + dy);
+        }
+      } else if (layoutDragOp.kind === "node") {
+        const n = nodeById(layoutDragOp.id);
+        if (n) {
+          n.x = snapGridCoord(layoutDragOp.n0x + dx);
+          n.y = snapGridCoord(layoutDragOp.n0y + dy);
+          if (n.hub) ensureHubInCmdbZone();
+        }
+      } else if (layoutDragOp.kind === "resize") {
+        const z = zoneById(layoutDragOp.id);
+        if (z) {
+          z.w = Math.max(160, snapGridCoord(layoutDragOp.w0 + dx));
+          z.h = Math.max(120, snapGridCoord(layoutDragOp.h0 + dy));
+        }
+      } else if (layoutDragOp.kind === "vertex") {
+        const ed = edgeById(layoutDragOp.edgeId);
+        if (ed && ed.orthoPts && ed.orthoPts[layoutDragOp.vi]) {
+          ed.orthoPts[layoutDragOp.vi].x = snapGridCoord(layoutDragOp.p0x + dx);
+          ed.orthoPts[layoutDragOp.vi].y = snapGridCoord(layoutDragOp.p0y + dy);
+          ed.manualRoute = true;
+        }
+      }
+      if (layoutDragOp.kind !== "vertex") recomputeEdgeOrthos();
+      render();
+    }
+
+    function endLayoutDrag() {
+      if (!layoutDragOp) return;
+      const op = layoutDragOp;
+      const had = layoutDragHadMove;
+      layoutDragOp = null;
+      layoutDragHadMove = false;
+      if (op.kind === "vertex") {
+        if (had) markLayoutDirty();
+        return;
+      }
+      if (op.kind === "resize") {
+        if (had) {
+          markLayoutDirty();
+          ensureHubInCmdbZone();
+          recomputeEdgeOrthos();
+          render();
+        }
+        return;
+      }
+      if (op.kind === "zone") {
+        if (had) markLayoutDirty();
+        suppressZoneClickOnce = true;
+        selectZone(op.id);
+        return;
+      }
+      if (op.kind === "node") {
+        if (had) markLayoutDirty();
+        suppressNodeClickOnce = true;
+        selectNode(op.id);
+      }
+    }
+
+    function bindInteractions() {
+      // клики по рёбрам — делегирование на edgesSvg (слушатель один раз ниже)
       // workspace click clear
       workspace.onclick = (e) => {
         if (e.target === workspace || e.target === edgesSvg || e.target === viewport) {
@@ -2156,6 +2431,11 @@
       // zone click highlight
       Array.from(workspace.querySelectorAll(".zone")).forEach((zEl) => {
         zEl.onclick = (ev) => {
+          if (suppressZoneClickOnce) {
+            suppressZoneClickOnce = false;
+            ev.stopPropagation();
+            return;
+          }
           if (ev.target.classList.contains("zone-resize")) return;
           const zid = zEl.dataset.zoneId;
           if (!zid) return;
@@ -2167,6 +2447,11 @@
       // node click highlight (доступно всегда, не только в edit mode)
       Array.from(workspace.querySelectorAll(".node")).forEach((nEl) => {
         nEl.onclick = (ev) => {
+          if (suppressNodeClickOnce) {
+            suppressNodeClickOnce = false;
+            ev.stopPropagation();
+            return;
+          }
           const nid = nEl.dataset.nodeId;
           if (!nid) return;
           selectNode(nid);
@@ -2202,6 +2487,7 @@
       if (el.closest?.(".zone")) return true;
       if (el.closest?.(".zone-resize")) return true;
       if (el.closest?.(".control-point")) return true;
+      if (el.closest?.(".edge-vertex-html")) return true;
       const p = el.closest?.("path");
       if (p && p.closest?.("g[data-edge-id]") && (p.classList.contains("edge-hit") || p.classList.contains("edge-path"))) return true;
       return false;
@@ -2230,6 +2516,10 @@
     }, true);
 
     window.addEventListener("mousemove", (e) => {
+      if (layoutDragOp) {
+        onLayoutDragMove(e);
+        return;
+      }
       if (!viewportPanActive) return;
       const dx = e.clientX - panLastClientX;
       const dy = e.clientY - panLastClientY;
@@ -2241,6 +2531,10 @@
     });
 
     window.addEventListener("mouseup", (e) => {
+      if (layoutDragOp) {
+        endLayoutDrag(e);
+        return;
+      }
       if (!viewportPanActive) return;
       viewportPanActive = false;
       viewport.classList.remove("viewport-panning");
@@ -2252,9 +2546,80 @@
     viewport.addEventListener("scroll", () => updateMinimap(), { passive: true });
     window.addEventListener("resize", () => updateMinimap());
 
+    if (!edgesSvg.dataset.edgeClickBound) {
+      edgesSvg.dataset.edgeClickBound = "1";
+      edgesSvg.addEventListener("click", (e) => {
+        const t = e.target;
+        if (!t.closest?.(".edge-hit") && !t.closest?.(".edge-path")) return;
+        const g = t.closest?.("g[data-edge-id]");
+        const edgeId = g?.dataset?.edgeId;
+        if (edgeId) selectEdge(edgeId);
+        e.stopPropagation();
+      });
+    }
+
+    workspace.addEventListener("mousedown", (ev) => {
+      if (!editMode) return;
+      if (ev.button !== 0) return;
+      const t = ev.target;
+      const vx = t.closest?.(".edge-vertex-html");
+      if (vx && vx.dataset.edgeId != null && vx.dataset.vi != null) {
+        const edgeId = vx.dataset.edgeId;
+        const vi = +vx.dataset.vi;
+        const ed = edgeById(edgeId);
+        if (!ed?.orthoPts?.[vi]) return;
+        beginLayoutDrag({
+          kind: "vertex",
+          edgeId,
+          vi,
+          sx: ev.clientX,
+          sy: ev.clientY,
+          p0x: ed.orthoPts[vi].x,
+          p0y: ed.orthoPts[vi].y
+        });
+        ev.preventDefault();
+        ev.stopPropagation();
+        return;
+      }
+      const rz = t.closest?.(".zone-resize");
+      if (rz) {
+        const zEl = rz.closest(".zone");
+        const zid = zEl?.dataset.zoneId;
+        const z = zoneById(zid);
+        if (z) {
+          beginLayoutDrag({ kind: "resize", id: z.id, sx: ev.clientX, sy: ev.clientY, w0: z.w, h0: z.h });
+          ev.preventDefault();
+          ev.stopPropagation();
+        }
+        return;
+      }
+      const zEl = t.closest?.(".zone");
+      if (zEl && !t.closest?.(".node")) {
+        const zid = zEl.dataset.zoneId;
+        const z = zoneById(zid);
+        if (z) {
+          beginLayoutDrag({ kind: "zone", id: z.id, sx: ev.clientX, sy: ev.clientY, z0x: z.x, z0y: z.y });
+          ev.preventDefault();
+          ev.stopPropagation();
+        }
+        return;
+      }
+      const nEl = t.closest?.(".node");
+      if (nEl) {
+        const nid = nEl.dataset.nodeId;
+        const n = nodeById(nid);
+        if (n) {
+          beginLayoutDrag({ kind: "node", id: n.id, sx: ev.clientX, sy: ev.clientY, n0x: n.x, n0y: n.y });
+          ev.preventDefault();
+          ev.stopPropagation();
+        }
+      }
+    }, true);
+
     initViewFiltersUi();
     applyCleanLayout();
     recomputeEdgeOrthos();
+    clearLayoutDirty();
     renderVendorStub();
     void renderEntityCard();
     sidebarSearchInput.addEventListener("input", (e) => runSearch(e.target.value));
@@ -2281,6 +2646,27 @@
     closeKnowledgeBtn.addEventListener("click", closeKnowledgeModal);
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && knowledgeOpen) closeKnowledgeModal();
+    });
+    editToggle?.addEventListener("click", () => setEditMode(!editMode));
+    saveLayoutBtn?.addEventListener("click", () => {
+      if (!layoutDirty) return;
+      const clone = JSON.parse(JSON.stringify(state));
+      const blob = new Blob([JSON.stringify(clone, null, 2)], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "enterprise-dataflow-layout.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      clearLayoutDirty();
+    });
+    kbGapsRefreshBtn?.addEventListener("click", () => refreshKbGapsReport());
+    window.addEventListener("beforeunload", (e) => {
+      if (!layoutDirty) return;
+      e.preventDefault();
+      e.returnValue = "";
     });
     render();
   </script>
