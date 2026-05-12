@@ -621,14 +621,49 @@
       .slice(0, 36);
   }
 
-  function scoreFnProductStrict(fRow, entry) {
-    const toks = strictTokensFromRow(fRow);
-    if (!toks.length) return 0;
-    const item = {
-      title: `${entry.vendor} ${entry.product}`,
-      body: `${entry.description || ""} ${entry.topFunctions || ""}`
-    };
-    return scoreSearchItem(item, toks);
+  function buildMxScoreMatrix(mRows, pickedCat) {
+    const n = mRows.length;
+    const p = pickedCat.length;
+    const rowToks = new Array(n);
+    for (let i = 0; i < n; i++) rowToks[i] = strictTokensFromRow(mRows[i]);
+    const matrix = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const row = new Array(p);
+      const toks = rowToks[i];
+      if (toks.length) {
+        for (let j = 0; j < p; j++) {
+          const e = pickedCat[j].entry;
+          row[j] = scoreSearchItem(
+            { title: `${e.vendor} ${e.product}`, body: `${e.description || ""} ${e.topFunctions || ""}` },
+            toks
+          );
+        }
+      } else {
+        for (let j = 0; j < p; j++) row[j] = 0;
+      }
+      matrix[i] = row;
+    }
+    return matrix;
+  }
+
+  function statusesFromMxScoreRow(scoreRow) {
+    let maxSc = 0;
+    for (let j = 0; j < scoreRow.length; j++) if (scoreRow[j] > maxSc) maxSc = scoreRow[j];
+    const out = new Array(scoreRow.length);
+    for (let j = 0; j < scoreRow.length; j++) out[j] = productStatusFromRelative(scoreRow[j], maxSc);
+    return out;
+  }
+
+  function coveragePctsFromMxMatrix(matrix) {
+    const n = matrix.length;
+    if (!n) return [];
+    const p = matrix[0].length;
+    const sums = new Array(p).fill(0);
+    for (let i = 0; i < n; i++) {
+      const sts = statusesFromMxScoreRow(matrix[i]);
+      for (let j = 0; j < p; j++) sums[j] += statusWeight(sts[j]);
+    }
+    return sums.map((s) => Math.min(100, Math.round((100 * s) / n)));
   }
 
   function productStatusFromRelative(sc, maxSc) {
@@ -638,24 +673,6 @@
     if (r >= 0.35 || sc >= 5) return "part";
     if (sc >= 2) return "part";
     return "no";
-  }
-
-  function rowVersusProductsStatuses(fRow, pickedCat) {
-    const scores = pickedCat.map((x) => scoreFnProductStrict(fRow, x.entry));
-    const maxSc = Math.max(0, ...scores);
-    return scores.map((sc) => productStatusFromRelative(sc, maxSc));
-  }
-
-  function catalogFunctionCoveragePct(entry, rows, pickedCat) {
-    const key = catalogEntryKey(entry);
-    const ix = pickedCat.findIndex((x) => x.key === key);
-    if (ix < 0 || !rows.length) return 0;
-    let sum = 0;
-    for (const r of rows) {
-      const sts = rowVersusProductsStatuses(r, pickedCat);
-      sum += statusWeight(sts[ix]);
-    }
-    return Math.min(100, Math.round((100 * sum) / rows.length));
   }
 
   function getBundleDimFilters() {
@@ -840,12 +857,15 @@
 
     const allBtnCls = CFG_MX_FILTER === "all" ? " btn-primary" : "";
     const qBtnCls = CFG_MX_FILTER === "query" ? " btn-primary" : "";
+    const mxMatrix = buildMxScoreMatrix(mRows, pickedCat);
+    const pctVals = coveragePctsFromMxMatrix(mxMatrix);
+
     const headProd = pickedCat
       .map((x) => `<th scope="col" class="cfg-mx-prod" title="${esc(x.entry.vendor + " — " + x.entry.product)}">${esc(x.entry.vendor)} — ${esc(x.entry.product)}</th>`)
       .join("");
     const body = mRows
-      .map((r) => {
-        const sts = rowVersusProductsStatuses(r, pickedCat);
+      .map((r, ri) => {
+        const sts = statusesFromMxScoreRow(mxMatrix[ri]);
         const cells = sts
           .map((st) => {
             const { t, c } = statusLabelRu(st);
@@ -856,8 +876,8 @@
       })
       .join("");
 
-    const pctCat = pickedCat.map((x) => {
-      const pct = catalogFunctionCoveragePct(x.entry, mRows, pickedCat);
+    const pctCat = pickedCat.map((x, j) => {
+      const pct = pctVals[j] ?? 0;
       return `<div style="flex:1;min-width:120px;"><div class="muted" style="font-size:11px;">${esc(x.entry.vendor)} — ${esc(x.entry.product)}</div><div class="cfg-pct">${pct}%</div><div class="muted" style="font-size:10px;">по видимым строкам функций</div></div>`;
     });
 
