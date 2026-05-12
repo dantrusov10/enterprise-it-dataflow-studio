@@ -369,7 +369,7 @@
           <button type="button" class="btn" id="kbGapsRefreshBtn" style="margin-bottom:6px;">Обновить отчёт</button>
           <div id="kbGapsReport" class="kb-gaps-report muted-text" style="font-size:11px;line-height:1.4;max-height:280px;overflow:auto;"></div>
         </div>
-        <span class="badge">v16 projectMap: класс да/нет по вендору</span>
+        <span class="badge">v17 L1: z-infra · единый discovery · ITAM/SAM/FinOps · миграция projectMap</span>
       </div>
     </aside>
     <div class="workspace-wrap">
@@ -833,23 +833,24 @@
 
     /** Явные ключи KB.classReference по id узла схемы (устойчиво к кэшу и к расхождению подписи с CSV). */
     const NODE_KB_CLASSREF_KEY = {
-      "n-t2": "Service Desk",
-      "n-t3": "Incident Management",
-      "n-t4": "Change Management",
-      "n-t5": "Problem Management",
-      "n-t8": "Release Management",
-      "n-f1": "ITAM",
-      "n-f2": "SAM",
-      "n-f4": "License Management",
-      "n-s2": "Vulnerability Management",
+      "n-infra-1": "Network Management?NMS",
+      "n-infra-2": "IPAM?DNS?DHCP",
+      "n-infra-3": "NAC",
+      "n-itsm-1": "ITSM Core",
+      "n-itsm-2": "Service Desk",
+      "n-itsm-3": "BPM?Workflow",
+      "n-itsm-4": "Knowledge Base",
+      "n-fin-1": "ITAM",
+      "n-fin-2": "SAM",
+      "n-fin-3": "FinOps",
+      "n-sec-3": "Vulnerability Management",
       "n-o1": "Monitoring / Event",
-      "n-o5": "Configuration Management",
     };
 
     /** Явные ключи KB.classSheets (если отличаются от справочника). */
     const NODE_KB_SHEET_KEY = {
       "n-o1": "мониторинг",
-      "n-s2": "Сканер уязвимости",
+      "n-sec-3": "Сканер уязвимости",
     };
 
     /** Варианты подписи узла для сопоставления со справочником и листами (Mgmt → Management, узловые алиасы). */
@@ -863,7 +864,7 @@
         out.add(p.replace(/\bMgmt\b/gi, "Management"));
         out.add(p.replace(/\//g, "?"));
       }
-      if (node.id === "n-s2") {
+      if (node.id === "n-sec-3") {
         out.add("Сканер уязвимости");
         out.add("Vulnerability Management");
       }
@@ -880,7 +881,7 @@
         if (ref) return { key: "CMDB / Golden Record", data: ref };
       }
       // Слой Discovery+Inventory на схеме = зона z-disc в справочнике (отдельного класса «Discovery» в CSV нет)
-      if (node.id === "n-d1") {
+      if (node.id === "n-disc-1" || node.id === "n-d1") {
         const z = zoneKbById("z-disc");
         if (z) {
           return {
@@ -910,6 +911,7 @@
       const flat = nrm(node.label.replace(/\n/g, " "));
       // Лист в материалах — «дискаверинг» (кириллица); не путать с листом Inventory (CMDB-реестр)
       const isDiscoveryInventoryLayer =
+        node.id === "n-disc-1" ||
         node.id === "n-d1" ||
         (flat.includes("discovery") && flat.includes("inventory") && !flat.includes("cloud"));
       if (isDiscoveryInventoryLayer && sheets["дискаверинг"]) {
@@ -986,6 +988,36 @@
         }
       }
       return best;
+    }
+
+    /** Доп. ключи каталога вендоров для узла (слитые L1-классы: ITSM-процессы, нормализация в discovery, GRC+PAM+DLP, ops delivery). */
+    const NODE_VENDOR_CATALOG_EXTRA_KEYS = {
+      "n-disc-1": ["Normalization Engine", "Reconciliation∕De-dup", "Software Recognition", "Ownership Enrichment"],
+      "n-itsm-1": ["Incident Management", "Change Management", "Problem Management", "Service Catalog", "Release Management"],
+      "n-sec-4": ["PAM", "DLP", "GRC"],
+      "n-ops-3": ["Deployment∕SW Distribution", "Patch Management", "Configuration Management"],
+      "n-fin-2": ["License Management"]
+    };
+
+    function catalogEntriesForKbNodeMerged(ref, sheet, node) {
+      const primary = catalogEntriesForKbNode(ref, sheet, node);
+      const extras = NODE_VENDOR_CATALOG_EXTRA_KEYS[node?.id];
+      const cat = vendorsByClassKbCache;
+      if (!extras?.length || !cat || typeof cat !== "object") return primary;
+      const seen = new Set(
+        primary.map((e) => prepSearch(`${e.vendor || ""}|${e.product || ""}`))
+      );
+      const out = [...primary];
+      for (const k of extras) {
+        const arr = cat[k] || [];
+        for (const e of arr) {
+          const sk = prepSearch(`${e.vendor || ""}|${e.product || ""}`);
+          if (seen.has(sk)) continue;
+          seen.add(sk);
+          out.push(e);
+        }
+      }
+      return out;
     }
 
     const VENDOR_PRESTIGE_RULES = [
@@ -1363,7 +1395,7 @@
         await ensureVendorsCatalogKb();
         const ref = classRefByNode(node);
         const sheet = classSheetByNode(node);
-        const allCatalogEntries = catalogEntriesForKbNode(ref, sheet, node);
+        const allCatalogEntries = catalogEntriesForKbNodeMerged(ref, sheet, node);
         let classVendorEntries = allCatalogEntries;
         const picksHere = (window.PROJECT_MAP_CTX?.picks || []).filter((p) => p.nodeId === node.id);
         if (window.PROJECT_MAP_CTX?.active) {
@@ -1653,7 +1685,8 @@
     async function handleConfiguratorOpenQuery() {
       const p = new URLSearchParams(location.search);
       if (p.get("projectMap") === "1") return;
-      const nodeId = p.get("pickNode") || p.get("nodeId") || "";
+      const rawId = p.get("pickNode") || p.get("nodeId") || "";
+      const nodeId = mapLegacyProjectMapNodeId(rawId);
       const q = (p.get("q") || p.get("highlight") || "").trim();
       if (!nodeId || !nodeById(nodeId)) return;
       selectNode(nodeId);
@@ -1764,141 +1797,91 @@
     const state = {
       zones: [
         { id: "z-src", title: "Источники первичных данных", x: 310, y: 50, w: 500, h: 190, color: "#3b82f6" },
-        { id: "z-disc", title: "Discovery / Inventory слой", x: 860, y: 50, w: 650, h: 210, color: "#65a30d" },
-        { id: "z-cld", title: "Cloud / Hybrid", x: 1560, y: 50, w: 520, h: 210, color: "#7c3aed" },
-        { id: "z-cmdb", title: "CMDB · Golden Record (SoT)", x: 1140, y: 280, w: 280, h: 200, color: "#0f172a" },
-        { id: "z-norm", title: "Нормализация / идентификация / обогащение", x: 860, y: 510, w: 650, h: 280, color: "#0284c7" },
-        { id: "z-itsm", title: "ITSM / Service Management", x: 860, y: 830, w: 760, h: 360, color: "#ca8a04" },
-        { id: "z-fin", title: "ITAM / SAM / Finance", x: 1680, y: 830, w: 560, h: 320, color: "#ea580c" },
-        { id: "z-sec", title: "Security / Risk / Compliance", x: 310, y: 1230, w: 860, h: 320, color: "#dc2626" },
-        { id: "z-ops", title: "Monitoring / Operations", x: 1220, y: 1230, w: 700, h: 320, color: "#0891b2" },
-        { id: "z-bi", title: "BI / Governance", x: 1970, y: 1230, w: 520, h: 260, color: "#16a34a" }
+        { id: "z-disc", title: "Дискаверинг и инвентаризация (L1)", x: 850, y: 50, w: 720, h: 210, color: "#65a30d" },
+        { id: "z-infra", title: "Инфраструктура сети: NMS · IPAM · NAC", x: 1320, y: 50, w: 520, h: 210, color: "#0d9488" },
+        { id: "z-cld", title: "Cloud / Hybrid", x: 1880, y: 50, w: 540, h: 210, color: "#7c3aed" },
+        { id: "z-cmdb", title: "CMDB · Golden Record (SoT)", x: 1180, y: 280, w: 300, h: 200, color: "#0f172a" },
+        { id: "z-itsm", title: "ITSM · Service Desk · BPM · Knowledge Base", x: 620, y: 520, w: 800, h: 300, color: "#ca8a04" },
+        { id: "z-fin", title: "ITAM · SAM · FinOps", x: 1460, y: 520, w: 580, h: 300, color: "#ea580c" },
+        { id: "z-sec", title: "SIEM · EDR · Уязвимости · GRC / compliance", x: 60, y: 860, w: 900, h: 300, color: "#dc2626" },
+        { id: "z-ops", title: "Мониторинг · APM · Поставка изменений", x: 1000, y: 860, w: 760, h: 300, color: "#0891b2" },
+        { id: "z-bi", title: "BI / Governance", x: 1800, y: 860, w: 560, h: 260, color: "#16a34a" }
       ],
       nodes: [
-        { id: "n-hub", label: "CMDB / Asset Data Hub\nGolden Record", x: 1460, y: 320, zoneId: "z-cmdb", hub: true },
-
-        { id: "n-src1", label: "Endpoints / Servers", x: 360, y: 95, zoneId: "z-src" },
-        { id: "n-src2", label: "HRM / HRIS", x: 520, y: 95, zoneId: "z-src" },
-        { id: "n-src3", label: "ERP / Procurement", x: 680, y: 95, zoneId: "z-src" },
-        { id: "n-src4", label: "IAM / IGA / PAM", x: 490, y: 155, zoneId: "z-src" },
-
-        { id: "n-d1", label: "Discovery / Inventory", x: 960, y: 95, zoneId: "z-disc" },
-        { id: "n-d3", label: "Cloud Inventory", x: 1180, y: 95, zoneId: "z-disc" },
-        { id: "n-d4", label: "UEM / MDM", x: 900, y: 165, zoneId: "z-disc" },
-        { id: "n-d5", label: "NAC", x: 1040, y: 165, zoneId: "z-disc" },
-        { id: "n-d6", label: "IPAM / DNS / DHCP", x: 1145, y: 165, zoneId: "z-disc" },
-        { id: "n-d7", label: "Network Mgmt / NMS", x: 1285, y: 165, zoneId: "z-disc" },
-
-        { id: "n-n1", label: "Normalization Engine", x: 1060, y: 560, zoneId: "z-norm" },
-        { id: "n-n2", label: "Reconciliation / De-dup", x: 1170, y: 690, zoneId: "z-norm" },
-        { id: "n-n3", label: "Software Recognition", x: 930, y: 690, zoneId: "z-norm" },
-        { id: "n-n4", label: "Ownership Enrichment", x: 1350, y: 690, zoneId: "z-norm" },
-
-        { id: "n-t1", label: "ITSM Core", x: 1140, y: 920, zoneId: "z-itsm" },
-        { id: "n-t2", label: "Service Desk", x: 1350, y: 920, zoneId: "z-itsm" },
-        { id: "n-t3", label: "Incident Mgmt", x: 940, y: 1090, zoneId: "z-itsm" },
-        { id: "n-t4", label: "Change Mgmt", x: 1100, y: 1090, zoneId: "z-itsm" },
-        { id: "n-t5", label: "Problem Mgmt", x: 1260, y: 1090, zoneId: "z-itsm" },
-        { id: "n-t6", label: "Service Catalog", x: 1440, y: 1090, zoneId: "z-itsm" },
-        { id: "n-t7", label: "Knowledge Base", x: 1340, y: 1020, zoneId: "z-itsm" },
-        { id: "n-t8", label: "Release Mgmt", x: 1520, y: 1020, zoneId: "z-itsm" },
-        { id: "n-t9", label: "BPM / Workflow", x: 1530, y: 1090, zoneId: "z-itsm" },
-
-        { id: "n-f1", label: "ITAM", x: 1780, y: 930, zoneId: "z-fin" },
-        { id: "n-f2", label: "SAM", x: 1930, y: 930, zoneId: "z-fin" },
-        { id: "n-f3", label: "FinOps", x: 2090, y: 930, zoneId: "z-fin" },
-        { id: "n-f4", label: "License Mgmt", x: 1900, y: 1040, zoneId: "z-fin" },
-        { id: "n-f5", label: "Asset Lifecycle", x: 1750, y: 1040, zoneId: "z-fin" },
-        { id: "n-f6", label: "ERP Sync", x: 2070, y: 1040, zoneId: "z-fin" },
-
-        { id: "n-s1", label: "SIEM", x: 400, y: 1310, zoneId: "z-sec" },
-        { id: "n-s2", label: "Vulnerability Mgmt", x: 590, y: 1310, zoneId: "z-sec" },
-        { id: "n-s6", label: "PAM", x: 790, y: 1310, zoneId: "z-sec" },
-        { id: "n-s3", label: "EDR", x: 400, y: 1410, zoneId: "z-sec" },
-        { id: "n-s4", label: "DLP", x: 590, y: 1410, zoneId: "z-sec" },
-        { id: "n-s5", label: "GRC", x: 790, y: 1410, zoneId: "z-sec" },
-
-        { id: "n-o1", label: "Monitoring / Event", x: 1300, y: 1310, zoneId: "z-ops" },
-        { id: "n-o2", label: "APM / Observability", x: 1510, y: 1310, zoneId: "z-ops" },
-        { id: "n-o3", label: "Deployment / SW Dist", x: 1270, y: 1410, zoneId: "z-ops" },
-        { id: "n-o4", label: "Patch Management", x: 1460, y: 1410, zoneId: "z-ops" },
-        { id: "n-o5", label: "Configuration Mgmt", x: 1640, y: 1410, zoneId: "z-ops" },
-
-        { id: "n-c1", label: "CMP", x: 1680, y: 95, zoneId: "z-cld" },
-        { id: "n-c2", label: "Cloud Governance", x: 1850, y: 95, zoneId: "z-cld" },
-
-        { id: "n-b1", label: "BI / DWH", x: 2060, y: 1280, zoneId: "z-bi" },
-        { id: "n-b2", label: "Executive Dashboards", x: 2220, y: 1280, zoneId: "z-bi" }
+        { id: "n-hub", label: "CMDB / Asset Data Hub\nGolden Record", x: 1300, y: 320, zoneId: "z-cmdb", hub: true },
+        { id: "n-src1", label: "Endpoints / Servers", x: 120, y: 95, zoneId: "z-src" },
+        { id: "n-src2", label: "HRM / HRIS", x: 280, y: 95, zoneId: "z-src" },
+        { id: "n-src3", label: "ERP / Procurement", x: 440, y: 95, zoneId: "z-src" },
+        { id: "n-src4", label: "IAM / IGA / PAM", x: 260, y: 165, zoneId: "z-src" },
+        { id: "n-disc-1", label: "Discovery & Inventory\n(нормализация как подпоток данных)", x: 920, y: 95, zoneId: "z-disc" },
+        { id: "n-infra-1", label: "Network Mgmt / NMS", x: 1380, y: 95, zoneId: "z-infra" },
+        { id: "n-infra-2", label: "IPAM / DNS / DHCP", x: 1540, y: 95, zoneId: "z-infra" },
+        { id: "n-infra-3", label: "NAC", x: 1700, y: 95, zoneId: "z-infra" },
+        { id: "n-c1", label: "CMP", x: 1960, y: 95, zoneId: "z-cld" },
+        { id: "n-c2", label: "Cloud Governance", x: 2140, y: 95, zoneId: "z-cld" },
+        { id: "n-itsm-1", label: "ITSM", x: 780, y: 600, zoneId: "z-itsm" },
+        { id: "n-itsm-2", label: "Service Desk", x: 1000, y: 600, zoneId: "z-itsm" },
+        { id: "n-itsm-3", label: "BPM / Workflow", x: 1220, y: 600, zoneId: "z-itsm" },
+        { id: "n-itsm-4", label: "Knowledge Base", x: 1100, y: 680, zoneId: "z-itsm" },
+        { id: "n-fin-1", label: "ITAM", x: 1560, y: 600, zoneId: "z-fin" },
+        { id: "n-fin-2", label: "SAM", x: 1720, y: 600, zoneId: "z-fin" },
+        { id: "n-fin-3", label: "FinOps", x: 1900, y: 600, zoneId: "z-fin" },
+        { id: "n-sec-1", label: "SIEM", x: 200, y: 980, zoneId: "z-sec" },
+        { id: "n-sec-2", label: "EDR", x: 400, y: 980, zoneId: "z-sec" },
+        { id: "n-sec-3", label: "Vulnerability Mgmt", x: 600, y: 980, zoneId: "z-sec" },
+        { id: "n-sec-4", label: "GRC / Compliance\n(PAM · DLP · политики)", x: 800, y: 980, zoneId: "z-sec" },
+        { id: "n-ops-1", label: "Monitoring / Event", x: 1120, y: 980, zoneId: "z-ops" },
+        { id: "n-ops-2", label: "APM / Observability", x: 1340, y: 980, zoneId: "z-ops" },
+        { id: "n-ops-3", label: "Deploy / Patch / CM", x: 1560, y: 980, zoneId: "z-ops" },
+        { id: "n-b1", label: "BI / DWH", x: 1920, y: 960, zoneId: "z-bi" },
+        { id: "n-b2", label: "Executive Dashboards", x: 2100, y: 960, zoneId: "z-bi" }
       ],
       edges: [
-        { id: "e1", from: "n-src1", to: "n-d1", label: "CI атрибуты · инвентарные признаки", type: "direct", c: {x: 470, y: 120} },
-        { id: "e2", from: "n-d1", to: "n-n1", label: "сырые CI · HW/SW inventory", type: "direct", c: {x: 1090, y: 230} },
-        { id: "e4", from: "n-d3", to: "n-n1", label: "cloud assets", type: "direct", c: {x: 1290, y: 210} },
-        { id: "e5", from: "n-n1", to: "n-n2", label: "нормализованные записи CI", type: "direct", c: {x: 1500, y: 380} },
-        { id: "e6", from: "n-n3", to: "n-n2", label: "признаки ПО для reconciliation", type: "direct", c: {x: 1435, y: 470} },
-        { id: "e7", from: "n-n4", to: "n-n2", label: "обогащение владельцами и атрибутами", type: "direct", c: {x: 1630, y: 470} },
-        { id: "e8", from: "n-n2", to: "n-hub", label: "нормализованные и обогащенные CI", type: "direct", c: {x: 1320, y: 500} },
-        { id: "e9", from: "n-hub", to: "n-t1", label: "service map", type: "direct", c: {x: 1060, y: 580} },
-        { id: "e10", from: "n-o1", to: "n-t3", label: "alerts", type: "direct", c: {x: 900, y: 940} },
-        { id: "e11", from: "n-o2", to: "n-t1", label: "trace/latency", type: "direct", c: {x: 1180, y: 910} },
-        { id: "e12", from: "n-hub", to: "n-f1", label: "asset graph", type: "direct", c: {x: 1320, y: 600} },
-        { id: "e13", from: "n-f1", to: "n-t1", label: "asset context", type: "direct", c: {x: 1310, y: 740} },
-        { id: "e14", from: "n-s6", to: "n-s1", label: "privileged sessions", type: "direct", c: {x: 470, y: 1060} },
-        { id: "e15", from: "n-c1", to: "n-d3", label: "cloud config", type: "direct", c: {x: 1620, y: 250} },
-        { id: "e19", from: "n-t1", to: "n-t4", label: "инициация и учёт изменений", type: "direct", c: {x: 1030, y: 800} },
-        { id: "e20", from: "n-t1", to: "n-t5", label: "связь инцидентов с проблемами", type: "direct", c: {x: 1120, y: 800} },
-        { id: "e21", from: "n-t6", to: "n-t1", label: "заказы услуг из каталога", type: "direct", c: {x: 1300, y: 760} },
-        { id: "e22", from: "n-f2", to: "n-f4", label: "entitlement и нормализация лицензий", type: "direct", c: {x: 1730, y: 760} },
-        { id: "e23", from: "n-f1", to: "n-f5", label: "статусы жизненного цикла актива", type: "direct", c: {x: 1580, y: 760} },
-        { id: "e24", from: "n-s3", to: "n-s1", label: "телеметрия и алерты EDR", type: "direct", c: {x: 230, y: 1165} },
-        { id: "e25", from: "n-s4", to: "n-s5", label: "классификация и доказательства compliance", type: "direct", c: {x: 520, y: 1210} },
-        { id: "e29", from: "n-n2", to: "n-t1", label: "quality CI feed", type: "direct", c: {x: 1370, y: 610} },
-        { id: "e30", from: "n-t1", to: "n-t8", label: "релизы, CAB и влияние на сервисы", type: "direct", c: {x: 1260, y: 760} },
-        { id: "e31", from: "n-t8", to: "n-t2", label: "коммуникации и окна релиза", type: "direct", c: {x: 1330, y: 730} },
-        { id: "e32", from: "n-t9", to: "n-t1", label: "оркестрация IT-процессов", type: "direct", c: {x: 1330, y: 845} },
-        { id: "e33", from: "n-hub", to: "n-s2", label: "asset identity", type: "direct", c: {x: 680, y: 790} },
-        { id: "e34", from: "n-s3", to: "n-s1", label: "endpoint incidents", type: "direct", c: {x: 290, y: 1160} },
-        { id: "e35", from: "n-s1", to: "n-s5", label: "risk context", type: "direct", c: {x: 430, y: 1140} },
-        { id: "e36", from: "n-src4", to: "n-s6", label: "privileged identities", type: "direct", c: {x: 520, y: 660} },
-        { id: "e37", from: "n-s6", to: "n-s1", label: "privileged session context", type: "direct", c: {x: 460, y: 1080} },
-        { id: "e38", from: "n-s6", to: "n-s5", label: "control evidence", type: "direct", c: {x: 640, y: 1160} },
-        { id: "e39", from: "n-f1", to: "n-f6", label: "стоимость/актив", type: "direct", c: {x: 1750, y: 740} },
-        { id: "e40", from: "n-f2", to: "n-f6", label: "entitlement/use", type: "direct", c: {x: 1810, y: 740} },
-        { id: "e41", from: "n-c1", to: "n-f3", label: "cost usage", type: "direct", c: {x: 1980, y: 520} },
-        { id: "e42", from: "n-hub", to: "n-b1", label: "KPI datasets", type: "direct", c: {x: 1650, y: 760} },
-        { id: "e43", from: "n-b1", to: "n-b2", label: "агрегированные KPI и дашборды", type: "direct", c: {x: 2140, y: 1060} },
-        { id: "e44", from: "n-src2", to: "n-t1", label: "joiner/mover/leaver", type: "direct", c: {x: 740, y: 420} },
-        { id: "e45", from: "n-src2", to: "n-src4", label: "оргструктура", type: "direct", c: {x: 330, y: 130} },
-        { id: "e46", from: "n-src4", to: "n-s1", label: "access events", type: "direct", c: {x: 320, y: 760} },
-        { id: "e47", from: "n-d6", to: "n-d1", label: "IP identity", type: "direct", c: {x: 930, y: 130} },
-        { id: "e48", from: "n-d7", to: "n-d1", label: "топология сети", type: "direct", c: {x: 980, y: 120} },
-        { id: "e49", from: "n-d5", to: "n-d1", label: "допуск в сеть", type: "direct", c: {x: 920, y: 130} },
-        { id: "e50", from: "n-o5", to: "n-t4", label: "config drift", type: "direct", c: {x: 1220, y: 980} },
-        { id: "e51", from: "n-o3", to: "n-t8", label: "release evidence", type: "direct", c: {x: 1120, y: 970} },
-        { id: "e52", from: "n-o4", to: "n-s2", label: "patch status", type: "direct", c: {x: 980, y: 1020} },
-        { id: "e53", from: "n-hub", to: "n-f3", label: "ownership", type: "direct", c: {x: 1540, y: 650} },
-
-        { id: "e16", from: "z-disc", to: "z-itsm", label: "zone flow", type: "zone", c: {x: 940, y: 420} },
-        { id: "e17", from: "z-norm", to: "z-itsm", label: "quality feed", type: "zone", c: {x: 1360, y: 560} },
-        { id: "e18", from: "n-b1", to: "n-s1", label: "reference analytics", type: "alt", c: {x: 1200, y: 980} },
-        { id: "e26", from: "z-fin", to: "z-itsm", label: "asset/financial context", type: "zone", c: {x: 1530, y: 560} },
-        { id: "e27", from: "z-sec", to: "z-itsm", label: "risk context", type: "zone", c: {x: 860, y: 980} },
-        { id: "e54", from: "z-src", to: "z-disc", label: "первичные данные в discovery", type: "zone", c: {x: 670, y: 80} },
-        { id: "e55", from: "z-disc", to: "z-norm", label: "сырой инвентарь в нормализацию", type: "zone", c: {x: 1270, y: 190} },
-        { id: "e56", from: "z-norm", to: "n-hub", label: "качественный CI в golden record", type: "zone", c: {x: 1390, y: 540} },
-        { id: "e57", from: "z-itsm", to: "z-fin", label: "контекст сервисов и активов/затрат", type: "zone", c: {x: 1460, y: 770} },
-        { id: "e58", from: "z-itsm", to: "z-sec", label: "риски и инциденты в ITSM", type: "zone", c: {x: 760, y: 980} },
-        { id: "e59", from: "z-fin", to: "z-bi", label: "финансы и активы в отчётность", type: "zone", c: {x: 2000, y: 900} },
-        { id: "e60", from: "z-sec", to: "z-bi", label: "риск и compliance в аналитике", type: "zone", c: {x: 1340, y: 1160} },
-        { id: "e61", from: "z-ops", to: "z-itsm", label: "события и метрики в управление сервисами", type: "zone", c: {x: 1250, y: 980} },
-        { id: "e62", from: "z-cld", to: "z-disc", label: "облачные ресурсы в инвентаризацию", type: "zone", c: {x: 1760, y: 170} },
-        { id: "e63", from: "n-s4", to: "n-s5", label: "data classification", type: "alt", c: {x: 540, y: 1240} },
-        { id: "e64", from: "n-c2", to: "n-hub", label: "policy tags", type: "alt", c: {x: 1680, y: 360} },
-        { id: "e65", from: "n-t2", to: "n-hub", label: "enrichment", type: "alt", c: {x: 1130, y: 620} },
-        { id: "e66", from: "n-o1", to: "n-d1", label: "Monitoring ≠ Discovery/Inventory", type: "alt", c: {x: 890, y: 620} },
-        { id: "e67", from: "n-t2", to: "n-t1", label: "Service Desk ≠ ITSM", type: "alt", c: {x: 1190, y: 700} },
-        { id: "e68", from: "n-b1", to: "n-hub", label: "BI/DWH ≠ SoT", type: "alt", c: {x: 1660, y: 900} },
-        { id: "e69", from: "n-f1", to: "n-hub", label: "ITAM ≠ CMDB", type: "alt", c: {x: 1370, y: 700} }
+        { id: "e1", from: "n-src1", to: "n-disc-1", label: "CI атрибуты · инвентарные признаки", type: "direct" },
+        { id: "e2", from: "n-disc-1", to: "n-hub", label: "инвентарь · нормализация · reconc → golden CI", type: "direct" },
+        { id: "e3", from: "n-c1", to: "n-disc-1", label: "cloud config / inventory", type: "direct" },
+        { id: "e4", from: "n-infra-1", to: "n-disc-1", label: "топология сети", type: "direct" },
+        { id: "e5", from: "n-infra-2", to: "n-disc-1", label: "IP identity", type: "direct" },
+        { id: "e6", from: "n-infra-3", to: "n-disc-1", label: "допуск в сеть / NAC", type: "direct" },
+        { id: "e7", from: "n-hub", to: "n-itsm-1", label: "service map", type: "direct" },
+        { id: "e8", from: "n-hub", to: "n-fin-1", label: "asset graph", type: "direct" },
+        { id: "e9", from: "n-fin-1", to: "n-itsm-1", label: "asset / lifecycle context", type: "direct" },
+        { id: "e10", from: "n-ops-1", to: "n-itsm-1", label: "alerts → ITSM", type: "direct" },
+        { id: "e11", from: "n-ops-2", to: "n-itsm-1", label: "trace / latency", type: "direct" },
+        { id: "e12", from: "n-ops-3", to: "n-itsm-1", label: "релизы · патчи · конфиг-доказательства", type: "direct" },
+        { id: "e13", from: "n-sec-2", to: "n-sec-1", label: "EDR → SIEM", type: "direct" },
+        { id: "e14", from: "n-sec-3", to: "n-sec-1", label: "VM → SIEM", type: "direct" },
+        { id: "e15", from: "n-sec-1", to: "n-sec-4", label: "risk / события → GRC", type: "direct" },
+        { id: "e16", from: "n-itsm-3", to: "n-itsm-1", label: "BPM оркестрация процессов", type: "direct" },
+        { id: "e17", from: "n-itsm-2", to: "n-itsm-1", label: "потоки Service Desk", type: "direct" },
+        { id: "e18", from: "n-itsm-4", to: "n-itsm-1", label: "знания → процессы", type: "direct" },
+        { id: "e19", from: "n-src2", to: "n-itsm-1", label: "joiner / mover / leaver", type: "direct" },
+        { id: "e20", from: "n-src2", to: "n-src4", label: "оргструктура", type: "direct" },
+        { id: "e21", from: "n-src4", to: "n-sec-1", label: "access events", type: "direct" },
+        { id: "e22", from: "n-src4", to: "n-sec-4", label: "политики привилегий / контроль", type: "direct" },
+        { id: "e23", from: "n-hub", to: "n-sec-3", label: "asset identity для VM", type: "direct" },
+        { id: "e24", from: "n-hub", to: "n-fin-3", label: "ownership · allocation", type: "direct" },
+        { id: "e25", from: "n-hub", to: "n-b1", label: "KPI datasets", type: "direct" },
+        { id: "e26", from: "n-fin-2", to: "n-fin-3", label: "entitlement / cloud cost", type: "direct" },
+        { id: "e27", from: "n-c1", to: "n-fin-3", label: "cost usage (CMP)", type: "direct" },
+        { id: "e28", from: "n-b1", to: "n-b2", label: "дашборды руководству", type: "direct" },
+        { id: "e29", from: "n-hub", to: "n-fin-2", label: "установки ПО / SAM-сигналы", type: "direct" },
+        { id: "e30", from: "n-c2", to: "n-hub", label: "policy tags / guardrails", type: "alt" },
+        { id: "ez1", from: "z-src", to: "z-disc", label: "первичные данные в discovery", type: "zone" },
+        { id: "ez2", from: "z-infra", to: "z-disc", label: "сеть и адресация → инвентарь", type: "zone" },
+        { id: "ez3", from: "z-disc", to: "z-cmdb", label: "CI в SoT (включая нормализацию как подпоток)", type: "zone" },
+        { id: "ez4", from: "z-cld", to: "z-disc", label: "облако → инвентаризация", type: "zone" },
+        { id: "ez5", from: "z-disc", to: "z-itsm", label: "контекст активов для ITSM", type: "zone" },
+        { id: "ez6", from: "z-cmdb", to: "z-itsm", label: "service graph / quality CI", type: "zone" },
+        { id: "ez7", from: "z-fin", to: "z-itsm", label: "активы и затраты в процессах", type: "zone" },
+        { id: "ez8", from: "z-sec", to: "z-itsm", label: "риск и инциденты ИБ в ITSM", type: "zone" },
+        { id: "ez9", from: "z-ops", to: "z-itsm", label: "события и метрики в сервисы", type: "zone" },
+        { id: "ez10", from: "z-fin", to: "z-bi", label: "финансы и активы в отчётность", type: "zone" },
+        { id: "ez11", from: "z-sec", to: "z-bi", label: "риск / compliance в аналитике", type: "zone" },
+        { id: "ea1", from: "n-ops-1", to: "n-disc-1", label: "Monitoring ≠ Discovery/Inventory", type: "alt" },
+        { id: "ea2", from: "n-itsm-2", to: "n-itsm-1", label: "Service Desk ≠ ядро ITSM", type: "alt" },
+        { id: "ea3", from: "n-b1", to: "n-hub", label: "BI/DWH ≠ SoT", type: "alt" },
+        { id: "ea4", from: "n-fin-1", to: "n-hub", label: "ITAM ≠ CMDB", type: "alt" }
       ]
     };
 
@@ -2032,24 +2015,92 @@
 
     const PROJECT_MAP_STORAGE_KEY = "enterprise_it_project_map_v1";
 
+    /** Миграция id узлов после рефакторинга схемы (старые localStorage / hash). */
+    const PROJECT_MAP_LEGACY_NODE_ID = {
+      "n-d1": "n-disc-1",
+      "n-d3": "n-disc-1",
+      "n-d4": "n-disc-1",
+      "n-d5": "n-infra-3",
+      "n-d6": "n-infra-2",
+      "n-d7": "n-infra-1",
+      "n-n1": "n-disc-1",
+      "n-n2": "n-disc-1",
+      "n-n3": "n-disc-1",
+      "n-n4": "n-disc-1",
+      "n-t1": "n-itsm-1",
+      "n-t2": "n-itsm-2",
+      "n-t3": "n-itsm-1",
+      "n-t4": "n-itsm-1",
+      "n-t5": "n-itsm-1",
+      "n-t6": "n-itsm-1",
+      "n-t7": "n-itsm-4",
+      "n-t8": "n-itsm-1",
+      "n-t9": "n-itsm-3",
+      "n-f1": "n-fin-1",
+      "n-f2": "n-fin-2",
+      "n-f3": "n-fin-3",
+      "n-f4": "n-fin-2",
+      "n-f5": "n-fin-1",
+      "n-f6": "n-fin-1",
+      "n-s1": "n-sec-1",
+      "n-s2": "n-sec-3",
+      "n-s3": "n-sec-2",
+      "n-s4": "n-sec-4",
+      "n-s5": "n-sec-4",
+      "n-s6": "n-sec-4",
+      "n-o1": "n-ops-1",
+      "n-o2": "n-ops-2",
+      "n-o3": "n-ops-3",
+      "n-o4": "n-ops-3",
+      "n-o5": "n-ops-3"
+    };
+
+    function mapLegacyProjectMapNodeId(id) {
+      return PROJECT_MAP_LEGACY_NODE_ID[id] || id;
+    }
+
+    function migrateProjectMapPayload(data) {
+      if (!data || typeof data !== "object") return data;
+      const next = { ...data };
+      if (Array.isArray(next.focusNodeIds)) {
+        next.focusNodeIds = [...new Set(next.focusNodeIds.map(mapLegacyProjectMapNodeId))];
+      }
+      if (Array.isArray(next.picks)) {
+        next.picks = next.picks.map((p) => ({ ...p, nodeId: mapLegacyProjectMapNodeId(p.nodeId) }));
+      }
+      if (next.vendorsByNode && typeof next.vendorsByNode === "object") {
+        const vb = {};
+        for (const [k, v] of Object.entries(next.vendorsByNode)) {
+          const nk = mapLegacyProjectMapNodeId(k);
+          if (!vb[nk]) vb[nk] = [];
+          vb[nk] = vb[nk].concat(Array.isArray(v) ? v : []);
+        }
+        next.vendorsByNode = vb;
+      }
+      return next;
+    }
+
     function parseProjectMapHandoff() {
+      let data = null;
       try {
         const ls = localStorage.getItem(PROJECT_MAP_STORAGE_KEY);
-        if (ls) return JSON.parse(ls);
+        if (ls) data = JSON.parse(ls);
       } catch {
         /* ignore */
       }
-      const h = (location.hash || "").replace(/^#/, "");
-      if (h.startsWith("pm=")) {
-        try {
-          const b64 = decodeURIComponent(h.slice(3));
-          const json = decodeURIComponent(escape(atob(b64)));
-          return JSON.parse(json);
-        } catch {
-          return null;
+      if (!data) {
+        const h = (location.hash || "").replace(/^#/, "");
+        if (h.startsWith("pm=")) {
+          try {
+            const b64 = decodeURIComponent(h.slice(3));
+            const json = decodeURIComponent(escape(atob(b64)));
+            data = JSON.parse(json);
+          } catch {
+            return null;
+          }
         }
       }
-      return null;
+      return data ? migrateProjectMapPayload(data) : null;
     }
 
     function edgeKeyUndirected(a, b) {
@@ -2713,20 +2764,20 @@
     }
 
     function applyCleanLayout() {
-      workspace.style.width = "3480px";
-      workspace.style.height = "2080px";
+      workspace.style.width = "3600px";
+      workspace.style.height = "2120px";
       const E = EXTRA_PX;
       const zonePos = {
         "z-src":  { x: 60 + E,   y: 48,  w: 520, h: 200 },
-        "z-disc": { x: 620 + E,  y: 48,  w: 680, h: 218 },
-        "z-cld":  { x: 1340 + E, y: 48,  w: 540, h: 218 },
-        "z-cmdb": { x: 960 + E,  y: 298, w: 308, h: 228 },
-        "z-norm": { x: 620 + E,  y: 568, w: 680, h: 300 },
-        "z-itsm": { x: 620 + E,  y: 910, w: 800, h: 380 },
-        "z-fin":  { x: 1480 + E, y: 910, w: 580, h: 340 },
-        "z-sec":  { x: 60 + E,   y: 1328, w: 900, h: 330 },
-        "z-ops":  { x: 1010 + E, y: 1328, w: 740, h: 330 },
-        "z-bi":   { x: 1800 + E, y: 1328, w: 540, h: 280 }
+        "z-disc": { x: 600 + E,  y: 48,  w: 720, h: 218 },
+        "z-infra": { x: 1340 + E, y: 48, w: 520, h: 218 },
+        "z-cld":  { x: 1880 + E, y: 48,  w: 540, h: 218 },
+        "z-cmdb": { x: 1180 + E, y: 298, w: 320, h: 228 },
+        "z-itsm": { x: 600 + E,  y: 568, w: 820, h: 320 },
+        "z-fin":  { x: 1460 + E, y: 568, w: 600, h: 320 },
+        "z-sec":  { x: 60 + E,   y: 928, w: 900, h: 300 },
+        "z-ops":  { x: 1000 + E, y: 928, w: 760, h: 300 },
+        "z-bi":   { x: 1800 + E, y: 928, w: 560, h: 280 }
       };
       state.zones.forEach((z) => {
         const p = zonePos[z.id];
@@ -2736,15 +2787,15 @@
 
       const nodePos = {
         "n-src1": [110 + E, 98], "n-src2": [280 + E, 98], "n-src3": [450 + E, 98], "n-src4": [260 + E, 168],
-        "n-d1": [720 + E, 98], "n-d3": [1000 + E, 98], "n-d4": [680 + E, 172], "n-d5": [860 + E, 172], "n-d6": [1010 + E, 172], "n-d7": [1160 + E, 172],
-        "n-c1": [1380 + E, 98], "n-c2": [1580 + E, 98],
-        "n-n1": [820 + E, 618], "n-n3": [690 + E, 748], "n-n2": [940 + E, 748], "n-n4": [1120 + E, 748],
-        "n-hub": [1054 + E, 352],
-        "n-t1": [900 + E, 998], "n-t2": [1120 + E, 998], "n-t3": [700 + E, 1178], "n-t4": [870 + E, 1178], "n-t5": [1040 + E, 1178], "n-t6": [1210 + E, 1178], "n-t7": [1110 + E, 1108], "n-t8": [1280 + E, 1108], "n-t9": [1360 + E, 1178],
-        "n-f1": [1560 + E, 1008], "n-f2": [1720 + E, 1008], "n-f3": [1890 + E, 1008], "n-f4": [1700 + E, 1128], "n-f5": [1540 + E, 1128], "n-f6": [1870 + E, 1128],
-        "n-s1": [160 + E, 1398], "n-s2": [360 + E, 1398], "n-s6": [560 + E, 1398], "n-s3": [160 + E, 1508], "n-s4": [360 + E, 1508], "n-s5": [560 + E, 1508],
-        "n-o1": [1080 + E, 1398], "n-o2": [1300 + E, 1398], "n-o3": [1040 + E, 1508], "n-o4": [1240 + E, 1508], "n-o5": [1440 + E, 1508],
-        "n-b1": [1880 + E, 1378], "n-b2": [2060 + E, 1378]
+        "n-disc-1": [920 + E, 98],
+        "n-infra-1": [1400 + E, 98], "n-infra-2": [1560 + E, 98], "n-infra-3": [1720 + E, 98],
+        "n-c1": [1980 + E, 98], "n-c2": [2160 + E, 98],
+        "n-hub": [1240 + E, 352],
+        "n-itsm-1": [760 + E, 618], "n-itsm-2": [980 + E, 618], "n-itsm-3": [1200 + E, 618], "n-itsm-4": [1080 + E, 698],
+        "n-fin-1": [1540 + E, 618], "n-fin-2": [1700 + E, 618], "n-fin-3": [1880 + E, 618],
+        "n-sec-1": [160 + E, 988], "n-sec-2": [360 + E, 988], "n-sec-3": [560 + E, 988], "n-sec-4": [760 + E, 988],
+        "n-ops-1": [1120 + E, 988], "n-ops-2": [1340 + E, 988], "n-ops-3": [1560 + E, 988],
+        "n-b1": [1920 + E, 968], "n-b2": [2100 + E, 968]
       };
       state.nodes.forEach((n) => {
         const p = nodePos[n.id];

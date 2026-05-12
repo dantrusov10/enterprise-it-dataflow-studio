@@ -164,7 +164,7 @@
     }
 
     function classRefFromParams(nodeId, label) {
-      if (nodeId === "n-d1") {
+      if (nodeId === "n-disc-1" || nodeId === "n-d1") {
         const z = zoneKbById("z-disc");
         if (z) {
           return {
@@ -191,6 +191,7 @@
       if (sheetKeyHint && sheets[sheetKeyHint]) return { key: sheetKeyHint, data: sheets[sheetKeyHint] };
       const flat = nrm(String(label).replace(/\n/g, " "));
       const isDiscoveryInventoryLayer =
+        nodeId === "n-disc-1" ||
         nodeId === "n-d1" ||
         (flat.includes("discovery") && flat.includes("inventory") && !flat.includes("cloud"));
       if (isDiscoveryInventoryLayer && sheets["дискаверинг"]) {
@@ -294,6 +295,71 @@
         }
       }
       return best;
+    }
+
+    const LEGACY_CLASS_DETAIL_NODE_ID = {
+      "n-d1": "n-disc-1",
+      "n-d3": "n-disc-1",
+      "n-d4": "n-disc-1",
+      "n-d5": "n-infra-3",
+      "n-d6": "n-infra-2",
+      "n-d7": "n-infra-1",
+      "n-n1": "n-disc-1",
+      "n-n2": "n-disc-1",
+      "n-n3": "n-disc-1",
+      "n-n4": "n-disc-1",
+      "n-t1": "n-itsm-1",
+      "n-t2": "n-itsm-2",
+      "n-t3": "n-itsm-1",
+      "n-t4": "n-itsm-1",
+      "n-t5": "n-itsm-1",
+      "n-t6": "n-itsm-1",
+      "n-t7": "n-itsm-4",
+      "n-t8": "n-itsm-1",
+      "n-t9": "n-itsm-3",
+      "n-f1": "n-fin-1",
+      "n-f2": "n-fin-2",
+      "n-f3": "n-fin-3",
+      "n-f4": "n-fin-2",
+      "n-f5": "n-fin-1",
+      "n-f6": "n-fin-1",
+      "n-s1": "n-sec-1",
+      "n-s2": "n-sec-3",
+      "n-s3": "n-sec-2",
+      "n-s4": "n-sec-4",
+      "n-s5": "n-sec-4",
+      "n-s6": "n-sec-4",
+      "n-o1": "n-ops-1",
+      "n-o2": "n-ops-2",
+      "n-o3": "n-ops-3",
+      "n-o4": "n-ops-3",
+      "n-o5": "n-ops-3"
+    };
+
+    const NODE_VENDOR_CATALOG_EXTRA_KEYS_DETAIL = {
+      "n-disc-1": ["Normalization Engine", "Reconciliation∕De-dup", "Software Recognition", "Ownership Enrichment"],
+      "n-itsm-1": ["Incident Management", "Change Management", "Problem Management", "Service Catalog", "Release Management"],
+      "n-sec-4": ["PAM", "DLP", "GRC"],
+      "n-ops-3": ["Deployment∕SW Distribution", "Patch Management", "Configuration Management"],
+      "n-fin-2": ["License Management"]
+    };
+
+    function catalogEntriesForDetailMerged(cat, ref, sheet, labelPlain, nodeIdForExtras) {
+      const primary = catalogEntriesForDetail(cat, ref, sheet, labelPlain);
+      const extras = NODE_VENDOR_CATALOG_EXTRA_KEYS_DETAIL[nodeIdForExtras];
+      if (!extras?.length || !cat || typeof cat !== "object") return primary;
+      const seen = new Set(primary.map((e) => prepSearch(`${e.vendor || ""}|${e.product || ""}`)));
+      const out = [...primary];
+      for (const k of extras) {
+        const arr = cat[k] || [];
+        for (const e of arr) {
+          const sk = prepSearch(`${e.vendor || ""}|${e.product || ""}`);
+          if (seen.has(sk)) continue;
+          seen.add(sk);
+          out.push(e);
+        }
+      }
+      return out;
     }
 
     const VENDOR_PRESTIGE_RULES = [
@@ -690,7 +756,8 @@
     }
 
     const params = new URLSearchParams(location.search);
-    const nodeId = params.get("nodeId") || "";
+    let nodeId = params.get("nodeId") || "";
+    nodeId = LEGACY_CLASS_DETAIL_NODE_ID[nodeId] || nodeId;
     const label = params.get("label") || "Класс";
     const sheetKey = params.get("sheetKey") || "";
     const vendorFocusList = params.getAll("vendorFocus").filter(Boolean);
@@ -715,7 +782,7 @@
         }
         const data = sheet?.data;
         const cat = await ensureVendorsCatalogDetail();
-        let vendorEntries = catalogEntriesForDetail(cat, ref, sheet, label);
+        let vendorEntries = catalogEntriesForDetailMerged(cat, ref, sheet, label, nodeId);
         if (vendorFocusList.length) {
           const lows = new Set(vendorFocusList.map((v) => String(v).trim().toLowerCase()));
           vendorEntries = vendorEntries.filter((e) => lows.has(String(e.vendor || "").trim().toLowerCase()));

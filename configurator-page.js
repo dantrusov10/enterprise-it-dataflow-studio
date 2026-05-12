@@ -8,14 +8,14 @@
   const MAP = {
     zones: [
       { id: "z-src", title: "Источники первичных данных" },
-      { id: "z-disc", title: "Discovery / Inventory слой" },
+      { id: "z-disc", title: "Дискаверинг и инвентаризация (L1)" },
+      { id: "z-infra", title: "Инфраструктура сети: NMS · IPAM · NAC" },
       { id: "z-cld", title: "Cloud / Hybrid" },
       { id: "z-cmdb", title: "CMDB · Golden Record (SoT)" },
-      { id: "z-norm", title: "Нормализация / идентификация / обогащение" },
-      { id: "z-itsm", title: "ITSM / Service Management" },
-      { id: "z-fin", title: "ITAM / SAM / Finance" },
-      { id: "z-sec", title: "Security / Risk / Compliance" },
-      { id: "z-ops", title: "Monitoring / Operations" },
+      { id: "z-itsm", title: "ITSM · Service Desk · BPM · Knowledge Base" },
+      { id: "z-fin", title: "ITAM · SAM · FinOps" },
+      { id: "z-sec", title: "SIEM · EDR · Уязвимости · GRC / compliance" },
+      { id: "z-ops", title: "Мониторинг · APM · Поставка изменений" },
       { id: "z-bi", title: "BI / Governance" }
     ],
     nodes: [
@@ -24,66 +24,57 @@
       { id: "n-src2", label: "HRM / HRIS", zoneId: "z-src" },
       { id: "n-src3", label: "ERP / Procurement", zoneId: "z-src" },
       { id: "n-src4", label: "IAM / IGA / PAM", zoneId: "z-src" },
-      { id: "n-d1", label: "Discovery / Inventory", zoneId: "z-disc" },
-      { id: "n-d3", label: "Cloud Inventory", zoneId: "z-disc" },
-      { id: "n-d4", label: "UEM / MDM", zoneId: "z-disc" },
-      { id: "n-d5", label: "NAC", zoneId: "z-disc" },
-      { id: "n-d6", label: "IPAM / DNS / DHCP", zoneId: "z-disc" },
-      { id: "n-d7", label: "Network Mgmt / NMS", zoneId: "z-disc" },
-      { id: "n-n1", label: "Normalization Engine", zoneId: "z-norm" },
-      { id: "n-n2", label: "Reconciliation / De-dup", zoneId: "z-norm" },
-      { id: "n-n3", label: "Software Recognition", zoneId: "z-norm" },
-      { id: "n-n4", label: "Ownership Enrichment", zoneId: "z-norm" },
-      { id: "n-t1", label: "ITSM Core", zoneId: "z-itsm" },
-      { id: "n-t2", label: "Service Desk", zoneId: "z-itsm" },
-      { id: "n-t3", label: "Incident Mgmt", zoneId: "z-itsm" },
-      { id: "n-t4", label: "Change Mgmt", zoneId: "z-itsm" },
-      { id: "n-t5", label: "Problem Mgmt", zoneId: "z-itsm" },
-      { id: "n-t6", label: "Service Catalog", zoneId: "z-itsm" },
-      { id: "n-t7", label: "Knowledge Base", zoneId: "z-itsm" },
-      { id: "n-t8", label: "Release Mgmt", zoneId: "z-itsm" },
-      { id: "n-t9", label: "BPM / Workflow", zoneId: "z-itsm" },
-      { id: "n-f1", label: "ITAM", zoneId: "z-fin" },
-      { id: "n-f2", label: "SAM", zoneId: "z-fin" },
-      { id: "n-f3", label: "FinOps", zoneId: "z-fin" },
-      { id: "n-f4", label: "License Mgmt", zoneId: "z-fin" },
-      { id: "n-f5", label: "Asset Lifecycle", zoneId: "z-fin" },
-      { id: "n-f6", label: "ERP Sync", zoneId: "z-fin" },
-      { id: "n-s1", label: "SIEM", zoneId: "z-sec" },
-      { id: "n-s2", label: "Vulnerability Mgmt", zoneId: "z-sec" },
-      { id: "n-s6", label: "PAM", zoneId: "z-sec" },
-      { id: "n-s3", label: "EDR", zoneId: "z-sec" },
-      { id: "n-s4", label: "DLP", zoneId: "z-sec" },
-      { id: "n-s5", label: "GRC", zoneId: "z-sec" },
-      { id: "n-o1", label: "Monitoring / Event", zoneId: "z-ops" },
-      { id: "n-o2", label: "APM / Observability", zoneId: "z-ops" },
-      { id: "n-o3", label: "Deployment / SW Dist", zoneId: "z-ops" },
-      { id: "n-o4", label: "Patch Management", zoneId: "z-ops" },
-      { id: "n-o5", label: "Configuration Mgmt", zoneId: "z-ops" },
+      { id: "n-disc-1", label: "Discovery & Inventory\n(нормализация как подпоток данных)", zoneId: "z-disc" },
+      { id: "n-infra-1", label: "Network Mgmt / NMS", zoneId: "z-infra" },
+      { id: "n-infra-2", label: "IPAM / DNS / DHCP", zoneId: "z-infra" },
+      { id: "n-infra-3", label: "NAC", zoneId: "z-infra" },
       { id: "n-c1", label: "CMP", zoneId: "z-cld" },
       { id: "n-c2", label: "Cloud Governance", zoneId: "z-cld" },
+      { id: "n-itsm-1", label: "ITSM", zoneId: "z-itsm" },
+      { id: "n-itsm-2", label: "Service Desk", zoneId: "z-itsm" },
+      { id: "n-itsm-3", label: "BPM / Workflow", zoneId: "z-itsm" },
+      { id: "n-itsm-4", label: "Knowledge Base", zoneId: "z-itsm" },
+      { id: "n-fin-1", label: "ITAM", zoneId: "z-fin" },
+      { id: "n-fin-2", label: "SAM", zoneId: "z-fin" },
+      { id: "n-fin-3", label: "FinOps", zoneId: "z-fin" },
+      { id: "n-sec-1", label: "SIEM", zoneId: "z-sec" },
+      { id: "n-sec-2", label: "EDR", zoneId: "z-sec" },
+      { id: "n-sec-3", label: "Vulnerability Mgmt", zoneId: "z-sec" },
+      { id: "n-sec-4", label: "GRC / Compliance\n(PAM · DLP · политики)", zoneId: "z-sec" },
+      { id: "n-ops-1", label: "Monitoring / Event", zoneId: "z-ops" },
+      { id: "n-ops-2", label: "APM / Observability", zoneId: "z-ops" },
+      { id: "n-ops-3", label: "Deploy / Patch / CM", zoneId: "z-ops" },
       { id: "n-b1", label: "BI / DWH", zoneId: "z-bi" },
       { id: "n-b2", label: "Executive Dashboards", zoneId: "z-bi" }
     ]
   };
 
   const NODE_KB_CLASSREF_KEY = {
-    "n-t2": "Service Desk",
-    "n-t3": "Incident Management",
-    "n-t4": "Change Management",
-    "n-t5": "Problem Management",
-    "n-t8": "Release Management",
-    "n-f1": "ITAM",
-    "n-f2": "SAM",
-    "n-f4": "License Management",
-    "n-s2": "Vulnerability Management",
-    "n-o1": "Monitoring / Event",
-    "n-o5": "Configuration Management"
+    "n-infra-1": "Network Management?NMS",
+    "n-infra-2": "IPAM?DNS?DHCP",
+    "n-infra-3": "NAC",
+    "n-itsm-1": "ITSM Core",
+    "n-itsm-2": "Service Desk",
+    "n-itsm-3": "BPM?Workflow",
+    "n-itsm-4": "Knowledge Base",
+    "n-fin-1": "ITAM",
+    "n-fin-2": "SAM",
+    "n-fin-3": "FinOps",
+    "n-sec-3": "Vulnerability Management",
+    "n-o1": "Monitoring / Event"
   };
 
   const NODE_KB_SHEET_KEY = {
     "n-o1": "мониторинг",
-    "n-s2": "Сканер уязвимости"
+    "n-sec-3": "Сканер уязвимости"
+  };
+
+  const NODE_VENDOR_CATALOG_EXTRA_KEYS = {
+    "n-disc-1": ["Normalization Engine", "Reconciliation∕De-dup", "Software Recognition", "Ownership Enrichment"],
+    "n-itsm-1": ["Incident Management", "Change Management", "Problem Management", "Service Catalog", "Release Management"],
+    "n-sec-4": ["PAM", "DLP", "GRC"],
+    "n-ops-3": ["Deployment∕SW Distribution", "Patch Management", "Configuration Management"],
+    "n-fin-2": ["License Management"]
   };
 
   const KB_SHEET_PROMISES = Object.create(null);
@@ -219,7 +210,7 @@
       out.add(p.replace(/\bMgmt\b/gi, "Management"));
       out.add(p.replace(/\//g, "?"));
     }
-    if (node.id === "n-s2") {
+    if (node.id === "n-sec-3") {
       out.add("Сканер уязвимости");
       out.add("Vulnerability Management");
     }
@@ -235,7 +226,7 @@
       const ref = KB.classReference?.["CMDB / Asset Data Hub"];
       if (ref) return { key: "CMDB / Golden Record", data: ref };
     }
-    if (node.id === "n-d1") {
+    if (node.id === "n-disc-1" || node.id === "n-d1") {
       const z = zoneKbById("z-disc");
       if (z) {
         return {
@@ -264,6 +255,7 @@
     const sheets = KB.classSheets || {};
     const flat = nrm(node.label.replace(/\n/g, " "));
     const isDiscoveryInventoryLayer =
+      node.id === "n-disc-1" ||
       node.id === "n-d1" ||
       (flat.includes("discovery") && flat.includes("inventory") && !flat.includes("cloud"));
     if (isDiscoveryInventoryLayer && sheets["дискаверинг"]) {
@@ -459,6 +451,24 @@
     return best;
   }
 
+  function vendorCatalogEntriesForRowMerged(row, cat) {
+    const primary = vendorCatalogEntriesForRow(row, cat);
+    const extras = NODE_VENDOR_CATALOG_EXTRA_KEYS[row.node?.id];
+    if (!extras?.length || !cat || typeof cat !== "object") return primary;
+    const seen = new Set(primary.map((e) => prepSearch(`${e.vendor || ""}|${e.product || ""}`)));
+    const out = [...primary];
+    for (const k of extras) {
+      const arr = cat[k] || [];
+      for (const e of arr) {
+        const sk = prepSearch(`${e.vendor || ""}|${e.product || ""}`);
+        if (seen.has(sk)) continue;
+        seen.add(sk);
+        out.push(e);
+      }
+    }
+    return out;
+  }
+
   function catalogEntryKey(e) {
     return `${e.vendor}\u0001${e.product}`;
   }
@@ -470,7 +480,7 @@
     const VCM = window.VENDOR_CATALOG_META;
     const map = new Map();
     for (const row of top.slice(0, 12)) {
-      const raw = vendorCatalogEntriesForRow(row, cat);
+      const raw = vendorCatalogEntriesForRowMerged(row, cat);
       const entries = VCM ? raw.filter((e) => VCM.passesDim(e, dim)) : raw;
       for (const e of entries) {
         const key = catalogEntryKey(e);
@@ -696,7 +706,7 @@
       const dim = getBundleDimFilters();
       const VCM = window.VENDOR_CATALOG_META;
       for (const row of top.slice(0, 10)) {
-        const rawEntries = vendorCatalogEntriesForRow(row, cat);
+        const rawEntries = vendorCatalogEntriesForRowMerged(row, cat);
         const entries = VCM ? rawEntries.filter((e) => VCM.passesDim(e, dim)) : rawEntries;
         const labelPlain = row.node.label.replace(/\n/g, " ").trim();
         const canonical = row.classRefKey || row.sheetKey || labelPlain;
@@ -1584,7 +1594,7 @@
       host.dataset.inited = "1";
       host.innerHTML = "";
       addZoneRow("Операции и сервис (z-itsm)", "Инциденты, заявки, SLA, каталог, изменения…");
-      addZoneRow("Данные и активы (z-disc / z-norm / z-cmdb)", "Discovery, CMDB, нормализация, реестр ПО…");
+      addZoneRow("Данные и активы (z-disc / z-infra / z-cmdb)", "Discovery, сеть/IPAM/NAC, CMDB, реестр ПО…");
       addZoneRow("Безопасность (z-sec)", "SIEM, уязвимости, EDR, доступы…");
       addZoneRow("Финансы и лицензии (z-fin)", "SAM, entitlement, FinOps, аудит…");
     }
