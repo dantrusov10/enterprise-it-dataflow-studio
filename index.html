@@ -288,6 +288,34 @@
     .mm-zone.sel { fill: rgba(37, 99, 235, 0.2); stroke: #2563eb; }
     .mm-view { fill: none; stroke: #ea580c; stroke-width: 3; pointer-events: none; }
     .mm-edge-hl { fill: none; stroke: #7c3aed; stroke-width: 4; opacity: 0.85; pointer-events: none; }
+
+    details.kb-details--search-hit {
+      border-color: #eab308;
+      box-shadow: inset 3px 0 0 0 #eab308;
+      border-radius: 8px;
+    }
+    details.kb-details--search-hit > summary {
+      background: linear-gradient(90deg, rgba(254, 243, 199, 0.95), rgba(255,255,255,0));
+      border-radius: 6px;
+    }
+    details.kb-details--search-hit-focus {
+      outline: 2px solid #ea580c;
+      outline-offset: 1px;
+    }
+    .configurator-section textarea {
+      width: 100%; box-sizing: border-box; min-height: 72px; resize: vertical;
+      font-size: 12px; line-height: 1.35; border: 1px solid #94a3b8; border-radius: 8px; padding: 8px;
+    }
+    .config-chip {
+      font-size: 10px; padding: 2px 8px; border-radius: 999px; cursor: pointer;
+      border: 1px solid #cbd5e1; background: #f8fafc; color: #334155;
+    }
+    .config-chip:hover { background: #e2e8f0; }
+    .config-result-item {
+      border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 8px; margin: 6px 0; cursor: pointer; background: #fff; font-size: 11px;
+    }
+    .config-result-item:hover { background: #f8fafc; }
+    .config-result-item .score { float: right; color: #64748b; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -303,6 +331,17 @@
           <input id="sidebarSearchInput" class="search-input" type="search" placeholder="Задача, функция, синоним…" autocomplete="off" />
           <div class="hint" style="font-size:11px;margin-top:4px;">Семантика v2. База — панель справа (схема видна). Мини-карта: оранжевый прямоугольник = видимая область, фиолетовая линия = выбранная связь. Листы классов подгружаются по сети.</div>
           <div id="sidebarSearchResults" class="sidebar-search-results"></div>
+        </div>
+        <div class="configurator-section sidebar-search-section" style="border-bottom:1px solid #e2e8f0;padding-bottom:10px;margin-bottom:4px;">
+          <h3>Конфигуратор</h3>
+          <div class="hint" style="font-size:10px;margin-bottom:6px;line-height:1.35;">Опишите задачу или перечислите функции (тезисно или подробно). Подбор по текстам справочника и листов функций; вендоры — позже под выбранный класс.</div>
+          <textarea id="configuratorInput" placeholder="Например: учёт лицензий Microsoft, сверка с установленным ПО, отчёт для аудита…"></textarea>
+          <div id="configuratorChips" class="muted-text" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;align-items:center;">
+            <span style="font-size:10px;margin-right:4px;">Быстрые темы:</span>
+          </div>
+          <button type="button" class="btn" id="configuratorRunBtn" style="margin-top:8px;">Подобрать классы</button>
+          <div id="configuratorStatus" class="muted-text" style="font-size:10px;margin-top:4px;"></div>
+          <div id="configuratorResults" class="sidebar-search-results" style="max-height:220px;"></div>
         </div>
         <div class="sidebar-view-section">
           <h3>Режим просмотра</h3>
@@ -329,7 +368,7 @@
           <button type="button" class="btn" id="kbGapsRefreshBtn" style="margin-bottom:6px;">Обновить отчёт</button>
           <div id="kbGapsReport" class="kb-gaps-report muted-text" style="font-size:11px;line-height:1.4;max-height:280px;overflow:auto;"></div>
         </div>
-        <span class="badge">v8 edit + save · орто-связи</span>
+        <span class="badge">v9 поиск · конфигуратор</span>
       </div>
     </aside>
     <div class="workspace-wrap">
@@ -1098,7 +1137,36 @@
       }
     }
 
+    function clearKbSearchPathHighlights() {
+      knowledgeDockBody?.querySelectorAll("details.kb-details--search-hit, details.kb-details--search-hit-focus").forEach((el) => {
+        el.classList.remove("kb-details--search-hit", "kb-details--search-hit-focus");
+      });
+    }
+
+    function applyKbSearchHitPathHighlights() {
+      clearKbSearchPathHighlights();
+      kbSearchHitMarks.forEach((mk) => {
+        let el = mk;
+        while (el && el !== knowledgeDockBody) {
+          if (el.tagName === "DETAILS") {
+            el.open = true;
+            el.classList.add("kb-details--search-hit");
+          }
+          el = el.parentElement;
+        }
+      });
+      const cur = kbSearchHitMarks[kbSearchHitIndex];
+      if (cur) {
+        let el = cur;
+        while (el && el !== knowledgeDockBody) {
+          if (el.tagName === "DETAILS") el.classList.add("kb-details--search-hit-focus");
+          el = el.parentElement;
+        }
+      }
+    }
+
     function clearKbSearchHighlightUi() {
+      clearKbSearchPathHighlights();
       [entityCard, vendorCard].forEach((root) => {
         if (!root) return;
         root.querySelectorAll("mark.kb-search-hit").forEach((m) => {
@@ -1165,6 +1233,7 @@
       kbSearchHitMarks[kbSearchHitIndex]?.classList.remove("kb-search-hit--current");
       kbSearchHitIndex = (kbSearchHitIndex + delta + kbSearchHitMarks.length) % kbSearchHitMarks.length;
       kbSearchHitMarks[kbSearchHitIndex]?.classList.add("kb-search-hit--current");
+      applyKbSearchHitPathHighlights();
       kbSearchHitMarks[kbSearchHitIndex]?.scrollIntoView({ block: "center", behavior: "smooth" });
       rebuildKbHitNavUi();
     }
@@ -1178,10 +1247,7 @@
       kbSearchHitMarks = knowledgeDockBody ? Array.from(knowledgeDockBody.querySelectorAll("mark.kb-search-hit")) : [];
       kbSearchHitIndex = 0;
       kbSearchHitMarks.forEach((mk, i) => mk.classList.toggle("kb-search-hit--current", i === 0));
-      kbSearchHitMarks.forEach((mk) => {
-        const d = mk.closest("details");
-        if (d) d.open = true;
-      });
+      applyKbSearchHitPathHighlights();
       if (kbSearchHitMarks[0]) kbSearchHitMarks[0].scrollIntoView({ block: "center", behavior: "smooth" });
       rebuildKbHitNavUi();
     }
@@ -1218,6 +1284,80 @@
       const tok = selectionDetailToken();
       if (tok) promptSuppressedForToken = tok;
       await openKnowledgeModal({ fromMenu: true, focusSearch: false, highlightQuery: q });
+    }
+
+    async function runConfigurator() {
+      const input = document.getElementById("configuratorInput");
+      const out = document.getElementById("configuratorResults");
+      const st = document.getElementById("configuratorStatus");
+      const q = String(input?.value || "").trim();
+      if (!out) return;
+      if (!q) {
+        if (st) st.textContent = "Введите описание или кликните темы выше.";
+        return;
+      }
+      if (st) st.textContent = "Загрузка листов и подбор…";
+      out.innerHTML = "";
+      const tokens = expandQueryTokens(tokenizeQuery(q));
+      if (!tokens.length) {
+        if (st) st.textContent = "Слишком короткие слова — добавьте термины от 3 букв.";
+        return;
+      }
+      const scored = [];
+      for (const n of state.nodes) {
+        await ensureLazyForNode(n);
+        const ref = classRefByNode(n)?.data || {};
+        const sheet = classSheetByNode(n)?.data || {};
+        const funcList = listFromValue(sheet.allFunctions?.length ? sheet.allFunctions : sheet.topFunctions);
+        const functionsText = funcList
+          .map((f) => `${f.title || ""} ${f.general || ""} ${f.technical || ""} ${f.business || ""}`)
+          .join(" ");
+        const title = n.label.replace(/\n/g, " ");
+        const body = `${ref.what || ""} ${ref.techGoal || ""} ${ref.businessGoal || ""} ${ref.howWorks || ""} ${functionsText}`;
+        const score = scoreSearchItem({ title, body }, tokens);
+        if (score > 0) scored.push({ n, score, title });
+      }
+      scored.sort((a, b) => b.score - a.score);
+      const top = scored.slice(0, 14);
+      if (st) {
+        st.textContent = top.length ? `Классов с совпадениями: ${top.length} (топ по скору).` : "Совпадений нет — уточните формулировку.";
+      }
+      if (!top.length) {
+        out.innerHTML = `<div class="muted-text">Попробуйте другие термины (ITSM, CMDB, лицензии, облако, IAM…).</div>`;
+        return;
+      }
+      out.innerHTML = top
+        .map((row) => {
+          const z = row.n.zoneId ? zoneById(row.n.zoneId) : null;
+          const zt = z ? esc(z.title) : "";
+          return `<div class="config-result-item" data-cfg-node="${esc(row.n.id)}"><span class="score">${row.score}</span><b>${esc(row.title)}</b>${zt ? `<div class="muted-text">Зона: ${zt}</div>` : ""}</div>`;
+        })
+        .join("");
+      Array.from(out.querySelectorAll(".config-result-item")).forEach((el) => {
+        el.addEventListener("click", () => void applySearchResultPick("node", el.dataset.cfgNode, q));
+      });
+    }
+
+    function initConfiguratorUi() {
+      const chips = document.getElementById("configuratorChips");
+      if (!chips || chips.dataset.bound === "1") return;
+      chips.dataset.bound = "1";
+      const picks = ["инцидент", "лиценз", "CMDB", "SAM", "ITAM", "уязвим", "мониторинг", "изменения", "IAM", "DLP", "FinOps", "облако"];
+      picks.forEach((label) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "config-chip";
+        b.textContent = label;
+        b.addEventListener("click", () => {
+          const ta = document.getElementById("configuratorInput");
+          if (!ta) return;
+          const cur = ta.value.trim();
+          ta.value = cur ? `${cur}, ${label}` : label;
+          ta.focus();
+        });
+        chips.appendChild(b);
+      });
+      document.getElementById("configuratorRunBtn")?.addEventListener("click", () => void runConfigurator());
     }
 
     function searchIndexItems() {
@@ -2667,6 +2807,7 @@
     renderVendorStub();
     void renderEntityCard();
     sidebarSearchInput.addEventListener("input", (e) => runSearch(e.target.value));
+    initConfiguratorUi();
     toggleSidebarBtn.addEventListener("click", () => {
       sidebarCollapsed = !sidebarCollapsed;
       sidebar.classList.toggle("collapsed", sidebarCollapsed);
