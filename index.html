@@ -6,7 +6,10 @@
   <title>Enterprise Dataflow Editor v4</title>
   <style>
     body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: #f1f5f9; color: #0f172a; }
-    .app { height: 100vh; position: relative; }
+    .app {
+      height: 100vh; position: relative;
+      --kb-dock-w: min(520px, 48vw);
+    }
     .sidebar {
       position: absolute; left: 12px; top: 12px; bottom: 12px; width: 260px; z-index: 90;
       background: rgba(255,255,255,0.96); border: 1px solid #cbd5e1; border-radius: 12px; overflow: auto;
@@ -37,7 +40,8 @@
       background-size: 24px 24px;
       transform-origin: top left;
     }
-    #viewport { position: absolute; inset: 0; overflow: auto; }
+    #viewport { position: absolute; inset: 0; overflow: auto; cursor: grab; }
+    #viewport.viewport-panning { cursor: grabbing; user-select: none; }
     /* SVG между зонами и узлами: клик по стрелке не перехватывается фоном зоны */
     #edges { position: absolute; inset: 0; overflow: visible; z-index: 15; pointer-events: none; }
     .zone {
@@ -176,13 +180,40 @@
     .view-check input { flex-shrink: 0; }
     .view-zone-head { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 11px; font-weight: 600; }
     .linkish { border: none; background: none; color: #2563eb; cursor: pointer; font-size: 11px; padding: 0 4px; text-decoration: underline; }
-    .view-zone-multi {
-      width: 100%; margin-top: 4px; font-size: 11px; border-radius: 8px; border: 1px solid #94a3b8;
-      min-height: 100px; box-sizing: border-box; padding: 4px;
+    .view-zone-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+      gap: 6px;
+      margin-top: 6px;
+      max-height: 220px;
+      overflow-y: auto;
+      padding: 8px;
+      border: 1px solid #94a3b8;
+      border-radius: 8px;
+      background: #fff;
+      box-sizing: border-box;
     }
+    .view-zone-cell {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      font-size: 11px;
+      line-height: 1.25;
+      cursor: pointer;
+      padding: 6px 8px;
+      border-radius: 6px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      user-select: none;
+      min-height: 36px;
+      box-sizing: border-box;
+    }
+    .view-zone-cell:hover { background: #f1f5f9; border-color: #cbd5e1; }
+    .view-zone-cell input { margin: 2px 0 0; flex-shrink: 0; width: 14px; height: 14px; cursor: pointer; }
+    .view-zone-cell-title { flex: 1; min-width: 0; word-break: break-word; }
 
     .knowledge-dock {
-      position: fixed; top: 12px; bottom: 12px; width: min(360px, 34vw); right: 12px; z-index: 130;
+      position: fixed; top: 12px; bottom: 12px; width: var(--kb-dock-w); right: 12px; z-index: 130;
       display: flex; flex-direction: column;
       background: #fff; border: 1px solid #cbd5e1; border-radius: 12px;
       box-shadow: 0 16px 48px rgba(15,23,42,0.18);
@@ -191,8 +222,8 @@
       overflow: hidden;
     }
     .knowledge-dock.open { transform: translateX(0); }
-    .app.knowledge-dock-open .workspace-wrap { margin-right: calc(min(360px, 34vw) + 28px); transition: margin-right 0.22s ease; }
-    .app.knowledge-dock-open .fab-knowledge { right: calc(min(360px, 34vw) + 40px); transition: right 0.22s ease; }
+    .app.knowledge-dock-open .workspace-wrap { margin-right: calc(var(--kb-dock-w) + 28px); transition: margin-right 0.22s ease; }
+    .app.knowledge-dock-open .fab-knowledge { right: calc(var(--kb-dock-w) + 40px); transition: right 0.22s ease; }
     .knowledge-dock-head { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #e2e8f0; }
     .knowledge-dock-head h4 { margin: 0; font-size: 14px; }
     .knowledge-dock-body { flex: 1; overflow: auto; padding: 12px; min-height: 0; }
@@ -204,7 +235,7 @@
       box-shadow: 0 6px 20px rgba(15,23,42,0.12);
       transition: right 0.22s ease;
     }
-    .app.knowledge-dock-open .minimap-wrap { right: calc(min(360px, 34vw) + 28px); }
+    .app.knowledge-dock-open .minimap-wrap { right: calc(var(--kb-dock-w) + 28px); }
     .minimap-title { font-size: 9px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
     #minimapSvg { display: block; width: 100%; height: auto; border-radius: 6px; background: #f8fafc; }
     .mm-zone { fill: rgba(148, 163, 184, 0.25); stroke: #94a3b8; stroke-width: 2; }
@@ -233,14 +264,13 @@
           <label class="view-check"><input type="checkbox" id="viewEdgesAlt" checked /> Косвенные / альтернативные</label>
           <label class="view-check"><input type="checkbox" id="viewEdgesZone" checked /> Связи зон</label>
           <div class="view-zone-head">
-            <span>Зоны (Ctrl+клик)</span>
+            <span>Зоны</span>
             <span>
-              <button type="button" class="linkish" id="zonesAllBtn">все</button>
-              <button type="button" class="linkish" id="zonesNoneBtn">снять</button>
+              <button type="button" class="linkish" id="zonesAllBtn" title="Показать все зоны (снять фильтр)">все</button>
             </span>
           </div>
-          <select id="viewZoneMulti" class="view-zone-multi" multiple size="7" title="Ничего не выбрано = показать все зоны"></select>
-          <div class="hint" style="font-size:10px;margin-top:4px;">Фильтр зон скрывает зону, классы в ней и инцидентные связи.</div>
+          <div id="viewZoneGrid" class="view-zone-grid" role="group" aria-label="Фильтр зон по галочкам" title="Ни одна галочка или все отмечены = без фильтра (все зоны). Иначе — только отмеченные."></div>
+          <div class="hint" style="font-size:10px;margin-top:4px;">Фильтр зон скрывает рамку зоны, классы в ней и связи с невидимыми концами.</div>
         </div>
         <button class="btn" id="editToggle">Редактировать: выкл</button>
         <button class="btn" id="addZoneBtn">+ Зона</button>
@@ -268,6 +298,7 @@
         <button type="button" class="btn-tiny primary" id="detailYes">Да</button>
         <button type="button" class="btn-tiny" id="detailNo">Нет</button>
       </div>
+      <div class="minimap-wrap" id="minimapWrap">
         <div class="minimap-title">Мини-карта</div>
         <svg id="minimapSvg" width="196" height="120" viewBox="0 0 2600 1600" preserveAspectRatio="xMidYMid meet"></svg>
       </div>
@@ -291,9 +322,8 @@
     const viewEdgesDirect = document.getElementById("viewEdgesDirect");
     const viewEdgesAlt = document.getElementById("viewEdgesAlt");
     const viewEdgesZone = document.getElementById("viewEdgesZone");
-    const viewZoneMulti = document.getElementById("viewZoneMulti");
+    const viewZoneGrid = document.getElementById("viewZoneGrid");
     const zonesAllBtn = document.getElementById("zonesAllBtn");
-    const zonesNoneBtn = document.getElementById("zonesNoneBtn");
     const viewport = document.getElementById("viewport");
     const workspace = document.getElementById("workspace");
     const edgesSvg = document.getElementById("edges");
@@ -1162,10 +1192,11 @@
     };
 
     function visibleZoneFilterSet() {
-      const opts = Array.from(viewZoneMulti?.selectedOptions || []).map((o) => o.value);
+      const checks = viewZoneGrid?.querySelectorAll('input[type="checkbox"][data-zone-id]') || [];
+      const checked = Array.from(checks).filter((c) => c.checked).map((c) => c.dataset.zoneId);
       if (!state?.zones?.length) return null;
-      if (opts.length === 0 || opts.length === state.zones.length) return null;
-      return new Set(opts);
+      if (checked.length === 0 || checked.length === state.zones.length) return null;
+      return new Set(checked);
     }
 
     function isNodeInViewForZones(n, zset) {
@@ -1203,29 +1234,32 @@
     }
 
     function initViewFiltersUi() {
-      if (!viewZoneMulti) return;
-      viewZoneMulti.innerHTML = "";
+      if (!viewZoneGrid) return;
+      viewZoneGrid.innerHTML = "";
       state.zones.forEach((z) => {
-        const o = document.createElement("option");
-        o.value = z.id;
-        o.textContent = z.title;
-        o.selected = true;
-        viewZoneMulti.appendChild(o);
+        const lab = document.createElement("label");
+        lab.className = "view-zone-cell";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.dataset.zoneId = z.id;
+        cb.checked = true;
+        const span = document.createElement("span");
+        span.className = "view-zone-cell-title";
+        span.textContent = z.title;
+        lab.appendChild(cb);
+        lab.appendChild(span);
+        viewZoneGrid.appendChild(lab);
       });
       const rerender = () => {
         render();
         updateMinimap();
       };
-      viewZoneMulti.addEventListener("change", rerender);
+      viewZoneGrid.addEventListener("change", rerender);
       viewEdgesDirect.addEventListener("change", rerender);
       viewEdgesAlt.addEventListener("change", rerender);
       viewEdgesZone.addEventListener("change", rerender);
       zonesAllBtn.addEventListener("click", () => {
-        Array.from(viewZoneMulti.options).forEach((o) => { o.selected = true; });
-        rerender();
-      });
-      zonesNoneBtn.addEventListener("click", () => {
-        Array.from(viewZoneMulti.options).forEach((o) => { o.selected = false; });
+        viewZoneGrid.querySelectorAll('input[type="checkbox"][data-zone-id]').forEach((c) => { c.checked = true; });
         rerender();
       });
     }
@@ -1980,6 +2014,59 @@
       workspace.style.transform = `scale(${scale})`;
       updateMinimap();
     }, { passive: false });
+
+    function panBlockedTarget(el) {
+      if (!el) return true;
+      if (el.closest?.(".node")) return true;
+      if (el.closest?.(".zone")) return true;
+      if (el.closest?.(".zone-resize")) return true;
+      if (el.closest?.(".control-point")) return true;
+      const p = el.closest?.("path");
+      if (p && p.closest?.("g[data-edge-id]") && (p.classList.contains("edge-hit") || p.classList.contains("edge-path"))) return true;
+      return false;
+    }
+
+    let viewportPanActive = false;
+    let viewportPanMoved = false;
+    let panLastClientX = 0;
+    let panLastClientY = 0;
+
+    function suppressNextClickFromPan(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      viewport.removeEventListener("click", suppressNextClickFromPan, true);
+    }
+
+    viewport.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      if (panBlockedTarget(e.target)) return;
+      viewportPanActive = true;
+      viewportPanMoved = false;
+      panLastClientX = e.clientX;
+      panLastClientY = e.clientY;
+      viewport.classList.add("viewport-panning");
+      e.preventDefault();
+    }, true);
+
+    window.addEventListener("mousemove", (e) => {
+      if (!viewportPanActive) return;
+      const dx = e.clientX - panLastClientX;
+      const dy = e.clientY - panLastClientY;
+      if (dx !== 0 || dy !== 0) viewportPanMoved = true;
+      viewport.scrollLeft -= dx;
+      viewport.scrollTop -= dy;
+      panLastClientX = e.clientX;
+      panLastClientY = e.clientY;
+    });
+
+    window.addEventListener("mouseup", (e) => {
+      if (!viewportPanActive) return;
+      viewportPanActive = false;
+      viewport.classList.remove("viewport-panning");
+      if (viewportPanMoved && e.button === 0) {
+        viewport.addEventListener("click", suppressNextClickFromPan, true);
+      }
+    });
 
     viewport.addEventListener("scroll", () => updateMinimap(), { passive: true });
     window.addEventListener("resize", () => updateMinimap());
