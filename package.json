@@ -1,0 +1,13 @@
+{
+  "name": "enterprise-it-dataflow-studio",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke": "node scripts/smoke.mjs",
+    "merge-landscape": "node scripts/merge-landscape-workbook.mjs",
+    "inspect-excel": "node scripts/inspect-excel.mjs"
+  },
+  "devDependencies": {
+    "xlsx": "^0.18.5"
+  }
+}

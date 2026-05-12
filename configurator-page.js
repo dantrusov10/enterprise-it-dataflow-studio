@@ -407,6 +407,93 @@
     return flat.slice(0, 12).join(", ").slice(0, 400);
   }
 
+  let vendorsByClassCache = null;
+
+  async function loadVendorsByClassCatalog() {
+    if (vendorsByClassCache !== null) return vendorsByClassCache;
+    try {
+      const r = await fetch("kb/merged/vendors-by-class.json", { cache: "force-cache" });
+      vendorsByClassCache = r.ok ? await r.json() : {};
+    } catch {
+      vendorsByClassCache = {};
+    }
+    return vendorsByClassCache;
+  }
+
+  function vendorCatalogEntriesForRow(row, cat) {
+    if (!cat || typeof cat !== "object") return [];
+    const rawKeys = [row.classRefKey, row.sheetKey, row.node?.label?.replace(/\n/g, " ")].filter(Boolean);
+    for (const tk of rawKeys) {
+      if (cat[tk]?.length) return cat[tk];
+      const t = prepSearch(tk);
+      for (const k of Object.keys(cat)) {
+        if (prepSearch(k) === t) return cat[k];
+      }
+    }
+    const label = prepSearch(row.node?.label?.replace(/\n/g, " ") || "");
+    let best = [];
+    let bestLen = 0;
+    for (const k of Object.keys(cat)) {
+      const ck = prepSearch(k);
+      if (!ck) continue;
+      if (label.includes(ck) || ck.includes(label)) {
+        if (ck.length >= bestLen) {
+          bestLen = ck.length;
+          best = cat[k] || [];
+        }
+      }
+    }
+    return best;
+  }
+
+  async function buildBundleHtmlFromTopClasses(top, tokens) {
+    const cat = await loadVendorsByClassCatalog();
+    if (!cat || !Object.keys(cat).length) {
+      return `<div class="cfg-subh">Подобранный бандл (продукты)</div><p class="muted">Нет файла <code>kb/merged/vendors-by-class.json</code>. В корне репозитория выполните <code>npm run merge-landscape</code> (нужны три исходных xlsx в Downloads) и опубликуйте папку <code>kb/merged/</code> рядом с конфигуратором.</p>`;
+    }
+    const rows = [];
+    for (const row of top.slice(0, 10)) {
+      const entries = vendorCatalogEntriesForRow(row, cat);
+      const labelPlain = row.node.label.replace(/\n/g, " ").trim();
+      const canonical = row.classRefKey || row.sheetKey || labelPlain;
+      if (!entries.length) {
+        rows.push({ canonical, labelPlain, pick: null, score: 0 });
+        continue;
+      }
+      let best = null;
+      let bestSc = -1;
+      for (const e of entries) {
+        const title = `${e.vendor} ${e.product}`;
+        const body = `${e.description || ""} ${e.topFunctions || ""}`;
+        const sc = scoreSearchItem({ title, body }, tokens);
+        if (sc > bestSc) {
+          bestSc = sc;
+          best = e;
+        }
+      }
+      rows.push({ canonical, labelPlain, pick: best, score: Math.max(0, bestSc) });
+    }
+    const picked = rows.filter((r) => r.pick).length;
+    const sum = rows.reduce((a, r) => a + r.score, 0);
+    const hint =
+      picked > 0
+        ? `Подобрано продуктов: ${picked} из ${rows.length}. Сумма скорингов по токенам запроса: ${sum}. Детальная матрица «функция × продукт» — в объединённом Excel после <code>npm run merge-landscape</code>.`
+        : "Не удалось сопоставить классы паутины с ключами каталога — проверьте названия классов в vendors-by-class.json.";
+    const tr = rows
+      .map(
+        (r) =>
+          `<tr><td><b>${esc(r.canonical)}</b><div class="muted" style="font-size:11px;">${esc(r.labelPlain)}</div></td><td>${
+            r.pick
+              ? `<b>${esc(r.pick.vendor)}</b> — ${esc(r.pick.product)}<div class="muted" style="font-size:11px;margin-top:4px;">${esc(
+                  String(r.pick.description || "").slice(0, 220)
+                )}${String(r.pick.description || "").length > 220 ? "…" : ""}</div>`
+              : '<span class="muted">нет строк каталога для класса</span>'
+          }</td><td style="white-space:nowrap;">${r.score}</td></tr>`
+      )
+      .join("");
+    return `<div class="cfg-subh">Подобранный бандл (продукт по каждому классу из топа)</div><p class="muted" style="margin-bottom:8px;">${hint}</p><table class="cfg-vt" aria-label="Бандл"><thead><tr><th>Класс</th><th>Продукт</th><th>Скор</th></tr></thead><tbody>${tr}</tbody></table>`;
+  }
+
   function isFreeMode() {
     return !!document.getElementById("cfgModeFree")?.checked;
   }
@@ -618,7 +705,7 @@
 </article>`;
   }
 
-  async function runModeZones(statusEl, resultsEl) {
+  async function runModeZones(statusEl, resultsEl, outputKind) {
     const globalTa = document.getElementById("cfgGlobalContext");
     const zoneRows = Array.from(document.querySelectorAll(".cfg-zone-row"));
     const zoneQueries = [];
@@ -713,9 +800,13 @@
     }
 
     resultsEl.innerHTML = `<div class="cfg-subh">Классы решений</div>` + top.map((row) => buildClassCardHtml(row, hl, { mode: "zones" })).join("");
+    if (outputKind === "bundle") {
+      resultsEl.innerHTML += await buildBundleHtmlFromTopClasses(top, allToks);
+    }
 
     lastRunCtx = {
       mode: "zones",
+      outputKind,
       requirementSummary: hl,
       tokens: allToks,
       activeThemeIndices: activeThemeIndices(allToks),
@@ -724,7 +815,7 @@
     renderVendorDetail();
   }
 
-  async function runModeFree(statusEl, resultsEl) {
+  async function runModeFree(statusEl, resultsEl, outputKind) {
     const ta = document.getElementById("cfgFreeText");
     const raw = String(ta?.value || "").trim();
     const rawToks = tokenizeQuery(raw);
@@ -813,6 +904,7 @@
       resultsEl.innerHTML = zoneBlock + `<p class="muted" style="margin-top:12px;">Классы не ранжированы — уточните ИТ-термины.</p>`;
       lastRunCtx = {
         mode: "free",
+        outputKind,
         requirementSummary: hl,
         tokens,
         activeThemeIndices: activeThemeIndices(tokens),
@@ -826,9 +918,13 @@
       zoneBlock +
       `<div class="cfg-subh">Классы решений</div>` +
       top.map((row) => buildClassCardHtml(row, hl, { mode: "free" })).join("");
+    if (outputKind === "bundle") {
+      resultsEl.innerHTML += await buildBundleHtmlFromTopClasses(top, tokens);
+    }
 
     lastRunCtx = {
       mode: "free",
+      outputKind,
       requirementSummary: hl,
       tokens,
       activeThemeIndices: activeThemeIndices(tokens),
@@ -837,12 +933,13 @@
     renderVendorDetail();
   }
 
-  async function runConfigurator() {
+  async function runConfigurator(outputKind) {
     const statusEl = document.getElementById("cfgStatus");
     const resultsEl = document.getElementById("cfgResults");
     if (!resultsEl) return;
-    if (isFreeMode()) await runModeFree(statusEl, resultsEl);
-    else await runModeZones(statusEl, resultsEl);
+    const kind = outputKind === "bundle" ? "bundle" : "classes";
+    if (isFreeMode()) await runModeFree(statusEl, resultsEl, kind);
+    else await runModeZones(statusEl, resultsEl, kind);
   }
 
   function syncModeUi() {
@@ -926,7 +1023,8 @@
     }
 
     document.getElementById("cfgAddZoneBtn")?.addEventListener("click", () => addZoneRow("Новая зона", "Опишите требования…"));
-    document.getElementById("cfgRunBtn")?.addEventListener("click", () => void runConfigurator());
+    document.getElementById("cfgRunClassesBtn")?.addEventListener("click", () => void runConfigurator("classes"));
+    document.getElementById("cfgRunBundleBtn")?.addEventListener("click", () => void runConfigurator("bundle"));
 
     document.querySelectorAll('input[name="cfgMode"]').forEach((r) => {
       r.addEventListener("change", () => {

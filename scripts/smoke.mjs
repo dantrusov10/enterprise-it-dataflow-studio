@@ -75,5 +75,6 @@ const cfgHtmlPath = path.join(root, "configurator.html");
 const cfgHtml = fs.readFileSync(cfgHtmlPath, "utf8");
 if (!cfgHtml.includes('name="cfgMode"')) throw new Error("configurator.html missing mode radios");
 if (!cfgHtml.includes("cfgVendorPanel")) throw new Error("configurator.html missing vendor panel");
+if (!cfgHtml.includes("cfgRunBundleBtn")) throw new Error("configurator.html missing bundle button");
 
 console.log("smoke: all checks passed");
