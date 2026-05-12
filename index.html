@@ -33,7 +33,7 @@
     /* Полная высота: иначе при absolute-вьюпорте родитель схлопывается в 0 и паутина не видна */
     .workspace-wrap { position: absolute; inset: 0; overflow: hidden; }
     #workspace {
-      position: relative; width: 2600px; height: 1600px; margin: 0; background: #f8fafc;
+      position: relative; width: 2840px; height: 1840px; margin: 0; background: #f8fafc;
       background-image:
         linear-gradient(to right, rgba(15,23,42,0.04) 1px, transparent 1px),
         linear-gradient(to bottom, rgba(15,23,42,0.04) 1px, transparent 1px);
@@ -300,7 +300,7 @@
       </div>
       <div class="minimap-wrap" id="minimapWrap">
         <div class="minimap-title">Мини-карта</div>
-        <svg id="minimapSvg" width="196" height="120" viewBox="0 0 2600 1600" preserveAspectRatio="xMidYMid meet"></svg>
+        <svg id="minimapSvg" width="196" height="120" viewBox="0 0 2840 1840" preserveAspectRatio="xMidYMid meet"></svg>
       </div>
       <div class="knowledge-dock" id="infoPanel" role="complementary" aria-label="База знаний">
         <div class="knowledge-dock-head panel-head">
@@ -1322,13 +1322,17 @@
       return { sx: start.x, sy: start.y, tx: end.x, ty: end.y };
     }
 
+    const GRID = 24;
+    const EXTRA_GRID_CELLS = 10;
+    const EXTRA_PX = GRID * EXTRA_GRID_CELLS;
+
     function workspaceW() {
       const w = parseInt(workspace.style.width, 10);
-      return Number.isFinite(w) && w > 0 ? w : 2600;
+      return Number.isFinite(w) && w > 0 ? w : 2840;
     }
     function workspaceH() {
       const h = parseInt(workspace.style.height, 10);
-      return Number.isFinite(h) && h > 0 ? h : 1600;
+      return Number.isFinite(h) && h > 0 ? h : 1840;
     }
 
     function updateMinimap() {
@@ -1420,16 +1424,17 @@
 
     function applyCleanLayout() {
       // Зоны: слева направо и сверху вниз по архитектурным слоям.
+      // +EXTRA_PX по X: запас слева (10 клеток сетки), полотно шире — диаграмма не «прилипает» к краю.
       const zonePos = {
-        "z-src":  { x: 70,   y: 50,  w: 500, h: 190 },
-        "z-disc": { x: 620,  y: 50,  w: 650, h: 210 },
-        "z-cld":  { x: 1330, y: 50,  w: 520, h: 210 },
-        "z-norm": { x: 620,  y: 300, w: 650, h: 250 },
-        "z-itsm": { x: 620,  y: 600, w: 760, h: 360 },
-        "z-fin":  { x: 1440, y: 600, w: 560, h: 320 },
-        "z-sec":  { x: 70,   y: 1020,w: 860, h: 320 },
-        "z-ops":  { x: 980,  y: 1020,w: 700, h: 320 },
-        "z-bi":   { x: 1730, y: 1020,w: 520, h: 260 }
+        "z-src":  { x: 70 + EXTRA_PX,   y: 50,  w: 500, h: 190 },
+        "z-disc": { x: 620 + EXTRA_PX,  y: 50,  w: 650, h: 210 },
+        "z-cld":  { x: 1330 + EXTRA_PX, y: 50,  w: 520, h: 210 },
+        "z-norm": { x: 620 + EXTRA_PX,  y: 300, w: 650, h: 250 },
+        "z-itsm": { x: 620 + EXTRA_PX,  y: 600, w: 760, h: 360 },
+        "z-fin":  { x: 1440 + EXTRA_PX, y: 600, w: 560, h: 320 },
+        "z-sec":  { x: 70 + EXTRA_PX,   y: 1020,w: 860, h: 320 },
+        "z-ops":  { x: 980 + EXTRA_PX,  y: 1020,w: 700, h: 320 },
+        "z-bi":   { x: 1730 + EXTRA_PX, y: 1020,w: 520, h: 260 }
       };
       state.zones.forEach((z) => {
         const p = zonePos[z.id];
@@ -1439,16 +1444,16 @@
 
       // Классы: аккуратная раскладка внутри зон.
       const nodePos = {
-        "n-src1": [120, 95], "n-src2": [280, 95], "n-src3": [440, 95], "n-src4": [250, 155],
-        "n-d1": [720, 95], "n-d3": [990, 95], "n-d4": [680, 165], "n-d5": [850, 165], "n-d6": [995, 165], "n-d7": [1135, 165],
-        "n-c1": [1440, 95], "n-c2": [1630, 95],
-        "n-n1": [820, 340], "n-n3": [690, 460], "n-n2": [930, 460], "n-n4": [1110, 460],
-        "n-hub": [980, 350],
-        "n-t1": [900, 690], "n-t2": [1120, 690], "n-t3": [700, 840], "n-t4": [860, 840], "n-t5": [1020, 840], "n-t6": [1180, 840], "n-t7": [1110, 770], "n-t8": [1260, 770], "n-t9": [1320, 840],
-        "n-f1": [1540, 700], "n-f2": [1690, 700], "n-f3": [1850, 700], "n-f4": [1660, 810], "n-f5": [1510, 810], "n-f6": [1830, 810],
-        "n-s1": [170, 1120], "n-s2": [370, 1120], "n-s6": [570, 1120], "n-s3": [170, 1230], "n-s4": [370, 1230], "n-s5": [570, 1230],
-        "n-o1": [1060, 1120], "n-o2": [1280, 1120], "n-o3": [1030, 1230], "n-o4": [1230, 1230], "n-o5": [1420, 1230],
-        "n-b1": [1830, 1090], "n-b2": [2030, 1090]
+        "n-src1": [120 + EXTRA_PX, 95], "n-src2": [280 + EXTRA_PX, 95], "n-src3": [440 + EXTRA_PX, 95], "n-src4": [250 + EXTRA_PX, 155],
+        "n-d1": [720 + EXTRA_PX, 95], "n-d3": [990 + EXTRA_PX, 95], "n-d4": [680 + EXTRA_PX, 165], "n-d5": [850 + EXTRA_PX, 165], "n-d6": [995 + EXTRA_PX, 165], "n-d7": [1135 + EXTRA_PX, 165],
+        "n-c1": [1440 + EXTRA_PX, 95], "n-c2": [1630 + EXTRA_PX, 95],
+        "n-n1": [820 + EXTRA_PX, 340], "n-n3": [690 + EXTRA_PX, 460], "n-n2": [930 + EXTRA_PX, 460], "n-n4": [1110 + EXTRA_PX, 460],
+        "n-hub": [980 + EXTRA_PX, 350],
+        "n-t1": [900 + EXTRA_PX, 690], "n-t2": [1120 + EXTRA_PX, 690], "n-t3": [700 + EXTRA_PX, 840], "n-t4": [860 + EXTRA_PX, 840], "n-t5": [1020 + EXTRA_PX, 840], "n-t6": [1180 + EXTRA_PX, 840], "n-t7": [1110 + EXTRA_PX, 770], "n-t8": [1260 + EXTRA_PX, 770], "n-t9": [1320 + EXTRA_PX, 840],
+        "n-f1": [1540 + EXTRA_PX, 700], "n-f2": [1690 + EXTRA_PX, 700], "n-f3": [1850 + EXTRA_PX, 700], "n-f4": [1660 + EXTRA_PX, 810], "n-f5": [1510 + EXTRA_PX, 810], "n-f6": [1830 + EXTRA_PX, 810],
+        "n-s1": [170 + EXTRA_PX, 1120], "n-s2": [370 + EXTRA_PX, 1120], "n-s6": [570 + EXTRA_PX, 1120], "n-s3": [170 + EXTRA_PX, 1230], "n-s4": [370 + EXTRA_PX, 1230], "n-s5": [570 + EXTRA_PX, 1230],
+        "n-o1": [1060 + EXTRA_PX, 1120], "n-o2": [1280 + EXTRA_PX, 1120], "n-o3": [1030 + EXTRA_PX, 1230], "n-o4": [1230 + EXTRA_PX, 1230], "n-o5": [1420 + EXTRA_PX, 1230],
+        "n-b1": [1830 + EXTRA_PX, 1090], "n-b2": [2030 + EXTRA_PX, 1090]
       };
       state.nodes.forEach((n) => {
         const p = nodePos[n.id];
@@ -1461,20 +1466,20 @@
     }
 
     function applyMinCrossLayout() {
-      // Более крупное полотно под уменьшение пересечений.
-      workspace.style.width = "3600px";
+      // Более крупное полотно под уменьшение пересечений (+EXTRA_PX по ширине и сдвиг X).
+      workspace.style.width = `${3600 + EXTRA_PX}px`;
       workspace.style.height = "2300px";
 
       const zonePos = {
-        "z-src":  { x: 90,   y: 70,   w: 700, h: 260 },
-        "z-disc": { x: 920,  y: 70,   w: 920, h: 280 },
-        "z-cld":  { x: 1960, y: 70,   w: 760, h: 260 },
-        "z-norm": { x: 980,  y: 440,  w: 940, h: 340 },
-        "z-itsm": { x: 980,  y: 900,  w: 1100, h: 500 },
-        "z-fin":  { x: 2220, y: 900,  w: 860, h: 440 },
-        "z-sec":  { x: 90,   y: 1540, w: 1140, h: 460 },
-        "z-ops":  { x: 1360, y: 1540, w: 980, h: 460 },
-        "z-bi":   { x: 2500, y: 1540, w: 900, h: 360 }
+        "z-src":  { x: 90 + EXTRA_PX,   y: 70,   w: 700, h: 260 },
+        "z-disc": { x: 920 + EXTRA_PX,  y: 70,   w: 920, h: 280 },
+        "z-cld":  { x: 1960 + EXTRA_PX, y: 70,   w: 760, h: 260 },
+        "z-norm": { x: 980 + EXTRA_PX,  y: 440,  w: 940, h: 340 },
+        "z-itsm": { x: 980 + EXTRA_PX,  y: 900,  w: 1100, h: 500 },
+        "z-fin":  { x: 2220 + EXTRA_PX, y: 900,  w: 860, h: 440 },
+        "z-sec":  { x: 90 + EXTRA_PX,   y: 1540, w: 1140, h: 460 },
+        "z-ops":  { x: 1360 + EXTRA_PX, y: 1540, w: 980, h: 460 },
+        "z-bi":   { x: 2500 + EXTRA_PX, y: 1540, w: 900, h: 360 }
       };
       state.zones.forEach((z) => {
         const p = zonePos[z.id];
@@ -1484,16 +1489,16 @@
 
       // Больше расстояний между узлами внутри зон.
       const nodePos = {
-        "n-hub": [1480, 600],
-        "n-src1": [150, 130], "n-src2": [390, 130], "n-src3": [620, 130], "n-src4": [390, 220],
-        "n-d1": [1120, 130], "n-d3": [1480, 130], "n-d4": [1040, 230], "n-d5": [1290, 230], "n-d6": [1500, 230], "n-d7": [1710, 230],
-        "n-c1": [2060, 130], "n-c2": [2360, 130],
-        "n-n1": [1260, 520], "n-n3": [1080, 680], "n-n2": [1420, 680], "n-n4": [1650, 680],
-        "n-t1": [1300, 1040], "n-t2": [1620, 1040], "n-t3": [1040, 1260], "n-t4": [1260, 1260], "n-t5": [1480, 1260], "n-t6": [1700, 1260], "n-t7": [1580, 1140], "n-t8": [1780, 1140], "n-t9": [1910, 1260],
-        "n-f1": [2310, 1040], "n-f2": [2550, 1040], "n-f3": [2820, 1040], "n-f4": [2510, 1190], "n-f5": [2270, 1190], "n-f6": [2780, 1190],
-        "n-s1": [170, 1680], "n-s2": [460, 1680], "n-s6": [760, 1680], "n-s3": [170, 1840], "n-s4": [460, 1840], "n-s5": [760, 1840],
-        "n-o1": [1470, 1680], "n-o2": [1780, 1680], "n-o3": [1420, 1840], "n-o4": [1690, 1840], "n-o5": [1940, 1840],
-        "n-b1": [2620, 1640], "n-b2": [2940, 1640]
+        "n-hub": [1480 + EXTRA_PX, 600],
+        "n-src1": [150 + EXTRA_PX, 130], "n-src2": [390 + EXTRA_PX, 130], "n-src3": [620 + EXTRA_PX, 130], "n-src4": [390 + EXTRA_PX, 220],
+        "n-d1": [1120 + EXTRA_PX, 130], "n-d3": [1480 + EXTRA_PX, 130], "n-d4": [1040 + EXTRA_PX, 230], "n-d5": [1290 + EXTRA_PX, 230], "n-d6": [1500 + EXTRA_PX, 230], "n-d7": [1710 + EXTRA_PX, 230],
+        "n-c1": [2060 + EXTRA_PX, 130], "n-c2": [2360 + EXTRA_PX, 130],
+        "n-n1": [1260 + EXTRA_PX, 520], "n-n3": [1080 + EXTRA_PX, 680], "n-n2": [1420 + EXTRA_PX, 680], "n-n4": [1650 + EXTRA_PX, 680],
+        "n-t1": [1300 + EXTRA_PX, 1040], "n-t2": [1620 + EXTRA_PX, 1040], "n-t3": [1040 + EXTRA_PX, 1260], "n-t4": [1260 + EXTRA_PX, 1260], "n-t5": [1480 + EXTRA_PX, 1260], "n-t6": [1700 + EXTRA_PX, 1260], "n-t7": [1580 + EXTRA_PX, 1140], "n-t8": [1780 + EXTRA_PX, 1140], "n-t9": [1910 + EXTRA_PX, 1260],
+        "n-f1": [2310 + EXTRA_PX, 1040], "n-f2": [2550 + EXTRA_PX, 1040], "n-f3": [2820 + EXTRA_PX, 1040], "n-f4": [2510 + EXTRA_PX, 1190], "n-f5": [2270 + EXTRA_PX, 1190], "n-f6": [2780 + EXTRA_PX, 1190],
+        "n-s1": [170 + EXTRA_PX, 1680], "n-s2": [460 + EXTRA_PX, 1680], "n-s6": [760 + EXTRA_PX, 1680], "n-s3": [170 + EXTRA_PX, 1840], "n-s4": [460 + EXTRA_PX, 1840], "n-s5": [760 + EXTRA_PX, 1840],
+        "n-o1": [1470 + EXTRA_PX, 1680], "n-o2": [1780 + EXTRA_PX, 1680], "n-o3": [1420 + EXTRA_PX, 1840], "n-o4": [1690 + EXTRA_PX, 1840], "n-o5": [1940 + EXTRA_PX, 1840],
+        "n-b1": [2620 + EXTRA_PX, 1640], "n-b2": [2940 + EXTRA_PX, 1640]
       };
       state.nodes.forEach((n) => {
         const p = nodePos[n.id];
@@ -1986,8 +1991,8 @@
       navigator.clipboard.writeText(out).then(() => alert("JSON скопирован в буфер обмена."));
     };
     layoutBtn.onclick = () => {
-      workspace.style.width = "2600px";
-      workspace.style.height = "1600px";
+      workspace.style.width = "2840px";
+      workspace.style.height = "1840px";
       applyCleanLayout();
       simplifyRoutes("normal");
       render();
