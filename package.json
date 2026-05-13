@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "smoke": "node scripts/smoke.mjs",
+    "export-map-xlsx": "node scripts/export-architecture-map-xlsx.mjs",
     "merge-landscape": "node scripts/merge-landscape-workbook.mjs",
     "inspect-excel": "node scripts/inspect-excel.mjs"
   },
